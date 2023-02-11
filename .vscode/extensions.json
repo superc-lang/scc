@@ -1,0 +1,13 @@
+{
+	"recommendations": [
+		"ms-vscode.cpptools-extension-pack",
+		"ms-vscode.cpptools",
+		"daohong-emilio.yash",
+		"aaron-bond.better-comments",
+		"github.copilot",
+		"ms-vscode-remote.remote-wsl"
+	],
+	"unwantedRecommendations": [
+		
+	]
+}
