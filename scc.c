@@ -212,17 +212,19 @@ void compile_files()
 {
 	// Create final compiler command
 	strcpy(command, "gcc");
-	struct string_list *sl = compiler_commands;
-	while (sl != NULL) {
-		strncat(command, " ", MAX_COMMAND - strlen(command) - 1);
-		strncat(command, sl->argv ? sl->argv : sl->string, MAX_COMMAND - strlen(command) - 1);
-		sl = sl->next;
-	}
+
 	struct filename_list *fl = transpiled_filenames;
 	while (fl != NULL) {
 		strncat(command, " ", MAX_COMMAND - strlen(command) - 1);
 		strncat(command, fl->filename, MAX_COMMAND - strlen(command) - 1);
 		fl = fl->next;
+	}
+
+	struct string_list *sl = compiler_commands;
+	while (sl != NULL) {
+		strncat(command, " ", MAX_COMMAND - strlen(command) - 1);
+		strncat(command, sl->argv ? sl->argv : sl->string, MAX_COMMAND - strlen(command) - 1);
+		sl = sl->next;
 	}
 	fprintf(stdout, "%s\n", command);
 

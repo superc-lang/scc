@@ -4,10 +4,10 @@
 // For the purposes of our examples, we don't need the `include` files yet.
 // If you want to actually compile this example with GCC or your compiler, you'll need to add them!
 
-// #include <stdlib.h>
-// #include <stdio.h>
-// #include <string.h>
-// #include <math.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
 
 // NB: Remember to compile with -lm flag to link with math library!
 
@@ -28,7 +28,7 @@ impl Point
 		return p;
 	}
 
-	float distance(&this, Point *p2)
+	float distance(Point *p2)
 	{
 		int dx = this->x - p2->x;
 		int dy = this->y - p2->y;
@@ -36,11 +36,11 @@ impl Point
 		return sqrt(dx * dx + dy * dy);
 	}
 
-	float angle(&this, Point *p2) => atan2(p2->y - this->y, p2->x - this->x);
+	float angle(Point *p2) => atan2(p2->y - this->y, p2->x - this->x);
 
-	get float magnitude(&this) => sqrt(this->x * this->x + this->y * this->y);
+	get float magnitude() => sqrt(this->x * this->x + this->y * this->y);
 
-	void delete(&this)
+	void delete()
 	{
 		free(this);
 	}
