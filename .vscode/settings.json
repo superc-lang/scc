@@ -13,20 +13,10 @@
 	"C_Cpp.errorSquiggles": "Disabled",
 	"files.associations": {
 		"symbol_table.h": "c",
+		"symbol_keys.h": "c",
 		"symbol.h": "c",
-		"ast_helpers.h": "c",
-		"optional": "c",
-		"istream": "c",
-		"ostream": "c",
-		"system_error": "c",
-		"array": "c",
-		"functional": "c",
-		"tuple": "c",
-		"type_traits": "c",
-		"utility": "c",
-		"cstdlib": "c",
-		"random": "cpp",
-		"stdlib.h": "c",
-		"string.h": "c"
+		"ast.h": "c",
+		"ast_nodes.h": "c",
+		"ast_helpers.h": "c"
 	}
 }

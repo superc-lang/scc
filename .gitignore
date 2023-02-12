@@ -19,6 +19,8 @@ a.out
 scc
 build
 test
+.vscode
+*.json
 
 tags
 TAGS
