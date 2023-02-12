@@ -4049,17 +4049,13 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 			//	eg. foo.x = 10; -> Foo__set__x(&foo, 10);
 			tmp = node->binary.left->member_access.object;
 			if (tmp->type == AST_ARRAY_SUBSCRIPT) {
-printf("AST_ARRAY_SUBSCRIPT\n");
 				tmp = tmp->array_subscript.array;
 				assert(tmp != NULL);
 			}
 
 			if (tmp->type == AST_ID) {
-symbol_table_print(stdout);
-printf("^^^^^^^^^^^^^^^^^^^^^^^^\n");
 				symbol = symbol_get(tmp->id.id);
 				if (symbol != NULL && symbol->is_variable) {	//	Could also be a pointer type, but not necessary eg. `Foo foo` is not a pointer!
-printf("HERE\n");
 					assert(symbol->node != NULL);
 					// check if the symbol is an AST_ID node. If it's NOT, then it's probably a normal variable. eg. AST_INT
 					if (symbol->node->type == AST_ID) {
@@ -4091,8 +4087,6 @@ printf("HERE\n");
 						}
 					}
 				}
-printf("NOT %s\n", tmp->id.id);
-
 			}
 		}
 
