@@ -21,8 +21,8 @@
 #define SUPERC_VERSION 1
 
 
+int error_count = 0;
 extern FILE *yyin;
-extern int error_count;
 
 #define BUFSIZE 512
 #define SENTINEL_SIZE 8
@@ -477,8 +477,6 @@ void transpile_file(const char *filename)
 		free(buffer);
 	}
 
-	int e_count = error_count;
-
 	//	Write AST tree BEFORE transformation.
 	if (flags.debug || flags.ast) {
 		snprintf(ast_before_filename, MAX_FILENAME, "%s.ast.before.txt", filename_no_ext);
@@ -490,8 +488,6 @@ void transpile_file(const char *filename)
 		print_ast_tree(ast_before, ast_root, 0, NULL);
 		fclose(ast_before);
 	}
-
-	error_count = e_count;		//	some kind of random anomaly, where the error count is set to 2304 somewhere in the above AST printer. WTF, a ghost in the machine :/ Only happens in debug mode!
 
 	//	Note: We at least try to print out the `before` AST tree, even if the parser failed.
 	if (parse_result != 0 || error_count > 0) {
@@ -2183,7 +2179,7 @@ union ast_node *find_this_or_self_id(union ast_node *node)
 	case AST_FUNCTION_CALL:	//	HOW does this work? Where will `this` or `self` be in a function call???
 		tmp = find_this_or_self_id(node->function_call.function);	// I think a function called `this` or `self` is a problem!!
 		if (tmp) {	//	`this` or `self` was used as a function call NAME!
-			break;
+			return tmp;		//	I believe this should fix `this` or `self` being used in a function call!
 		}
 		//if (tmp) return tmp;
 		return find_this_or_self_id(node->function_call.args);
@@ -2325,7 +2321,7 @@ void register_declarator(union ast_node *node, union ast_node *typename)
 
 	case AST_TYPEDEF_NAME:	//	AST_TYPEDEF_NAME is not really implemented yet, but it might be in future.
 		fprintf(stderr, "ERROR: `AST_TYPEDEF_NAME` node type cannot appear in the `.init_declarator_list`\n");
-		exit(1);
+		exit(EXIT_FAILURE);
 		return;
 
 	case AST_LIST:
@@ -2359,7 +2355,7 @@ void register_pointer_declarator(union ast_node *node, union ast_node *typename)
 
 	case AST_TYPEDEF_NAME:	//	AST_TYPEDEF_NAME is not really implemented yet, but it might be in future.
 		fprintf(stderr, "ERROR: `AST_TYPEDEF_NAME` node type cannot appear in the `.init_declarator_list`\n");
-		exit(1);
+		exit(EXIT_FAILURE);
 		return;
 
 	case AST_LIST:
@@ -2389,7 +2385,7 @@ void register_declaration_list(union ast_node *node, union ast_node *typename)
 
 	case AST_TYPEDEF_NAME:	//	AST_TYPEDEF_NAME is not really implemented yet, but it might be in future.
 		fprintf(stderr, "ERROR: `AST_TYPEDEF_NAME` node type cannot appear in the declarator_list\n");
-		exit(1);
+		exit(EXIT_FAILURE);
 		return;
 
 	case AST_POINTER_DECLARATOR:
@@ -2442,7 +2438,7 @@ void register_variable_declaration_get_typename(union ast_node *node, union ast_
 		//	I'm in two minds about implementing it as an actual node type. Is it necessary? Will it be useful?
 		//	Maybe in this case it will be useful, so we can detect only `AST_TYPEDEF_NAME`'s, since I think they are the only ones that will have an "impl" block!
 		fprintf(stderr, "ERROR: `AST_TYPEDEF_NAME` node type should be implemented in %s()\n", __func__);
-		exit(1);
+		exit(EXIT_FAILURE);
 		return;
 
 	case AST_THIS:
@@ -2474,7 +2470,7 @@ void register_variable_declaration_get_typename(union ast_node *node, union ast_
 		return;
 		//	I don't think we need to handle ALL cases!
 		// fprintf(stderr, "ERROR: Unhandled node type (%s:%d) in %s\n", get_node_name(node->type), node->type, __func__);
-		// exit(1);
+		// exit(EXIT_FAILURE);
 	}
 }
 
@@ -3771,7 +3767,8 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 		codegen(out, node->block.stmts, depth + 1, node);
 		indent(out, depth);
 		if ((parent->type == AST_IF && parent->if_stmt.if_false != NULL) || parent->type == AST_DO_WHILE) {
-			fprintf(out, "} ");
+		// if (parent->type == AST_DO_WHILE) {
+			fprintf(out, "}");
 		} else {
 			fprintf(out, "}\n");
 		}
@@ -4518,57 +4515,66 @@ printf("NOT %s\n", tmp->id.id);
 			}
 
 			assert(obj != NULL);
+
+			const char *id;
 			if (obj->type == AST_ID) {
-				symbol = symbol_get(obj->id.id);
-				if (symbol == NULL) {
-					fprintf(stderr, "ERROR: Variable declaration for `%s` not found. Are you sure you declared it?\n", obj->id.id);
-					exit(1);
-				}
-				if (symbol->is_variable) {
-					assert(symbol->node != NULL);
-					assert(tmp->member_access.member != NULL);
-					assert(tmp->member_access.member->type == AST_ID);
-					if (tmp->member_access.member->type == AST_ID) {
+				id = obj->id.id;
+			} else if (obj->type == AST_SELF) {
+				id = "self";
+			} else if (obj->type == AST_THIS) {
+				id = "this";
+			} else {
+				fprintf(stderr, "codegen: AST_FUNCTION_CALL: AST_MEMBER_ACCESS_POINTER: object is not an AST_ID, AST_SELF or AST_THIS\n");
+				exit(EXIT_FAILURE);
+			}
 
-						union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
-						if (symbol->node->type == AST_ID) {
-							sym = symbol->node;
-						} else {
-							sym = get_id_node(symbol->node);
-						}
+			symbol = symbol_get(id);
+			if (symbol == NULL) {
+				fprintf(stderr, "ERROR: Variable declaration for `%s` not found. Are you sure you declared it?\n", id);
+				exit(EXIT_FAILURE);
+			}
+			if (symbol->is_variable) {
+				assert(symbol->node != NULL);
+				assert(tmp->member_access.member != NULL);
+				assert(tmp->member_access.member->type == AST_ID);
+				if (tmp->member_access.member->type == AST_ID) {
 
-						assert(sym->type == AST_ID);
-						sprintf(func_name, "%s__%s", sym->id.id, tmp->member_access.member->id.id);
-						symbol = symbol_get(func_name);
-						if (symbol == NULL) {
-							fprintf(stderr, "ERROR: function call %s not found\n", tmp->member_access.member->id.id);
-							exit(EXIT_FAILURE);
-						}
-
-						if (tmp->member_access.object->type == AST_ARRAY_SUBSCRIPT) {
-							tmp = create_unary_node(AST_ADDRESS_OF, tmp->member_access.object);
-						} else {
-							tmp = tmp->member_access.object;
-						}
-
-						//	We need to attach the member object ID to the function call argument list. eg. car->drive() becomes Car__drive(car); where we've moved the `car` object to the front of the argument list.
-						if (node->function_call.args == NULL) {
-							node->function_call.args = tmp;
-						} else {
-							node->function_call.args = create_list_node(tmp, node->function_call.args, ", ");
-						}
-
-						node->function_call.function = create_id_node(func_name);
-						//  vvv fallthrough to output the new (transpiled) function call!
+					union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					if (symbol->node->type == AST_ID) {
+						sym = symbol->node;
+					} else {
+						sym = get_id_node(symbol->node);
 					}
-				} else {
-					fprintf(stderr, "codegen: AST_FUNCTION_CALL: AST_MEMBER_ACCESS_POINTER: symbol for %s is not a variable\n", tmp->member_access.object->id.id);
-					exit(1);
+
+					assert(sym->type == AST_ID);
+					sprintf(func_name, "%s__%s", sym->id.id, tmp->member_access.member->id.id);
+					symbol = symbol_get(func_name);
+					if (symbol == NULL) {
+						fprintf(stderr, "ERROR: function call %s not found\n", tmp->member_access.member->id.id);
+						exit(EXIT_FAILURE);
+					}
+
+					if (tmp->member_access.object->type == AST_ARRAY_SUBSCRIPT) {
+						tmp = create_unary_node(AST_ADDRESS_OF, tmp->member_access.object);
+					} else {
+						tmp = tmp->member_access.object;
+					}
+
+					//	We need to attach the member object ID to the function call argument list. eg. car->drive() becomes Car__drive(car); where we've moved the `car` object to the front of the argument list.
+					if (node->function_call.args == NULL) {
+						node->function_call.args = tmp;
+					} else {
+						node->function_call.args = create_list_node(tmp, node->function_call.args, ", ");
+					}
+
+					node->function_call.function = create_id_node(func_name);
+					//  vvv fallthrough to output the new (transpiled) function call!
 				}
 			} else {
-				fprintf(stderr, "codegen: AST_FUNCTION_CALL: AST_MEMBER_ACCESS_POINTER: object is not an AST_ID\n");
-				exit(1);
+				fprintf(stderr, "codegen: AST_FUNCTION_CALL: AST_MEMBER_ACCESS_POINTER: symbol for %s is not a variable\n", tmp->member_access.object->id.id);
+				exit(EXIT_FAILURE);
 			}
+
 		} else if (tmp->type == AST_MEMBER_ACCESS) {
 
 			union ast_node *obj = tmp->member_access.object;
@@ -4581,7 +4587,7 @@ printf("NOT %s\n", tmp->id.id);
 				symbol = symbol_get(obj->id.id);
 				if (symbol == NULL) {
 					fprintf(stderr, "ERROR: Variable declaration for `%s` not found. Are you sure you declared it?\n", obj->id.id);
-					exit(1);
+					exit(EXIT_FAILURE);
 				}
 				if (symbol->is_variable) {
 					assert(symbol->node != NULL);
@@ -4620,11 +4626,11 @@ printf("NOT %s\n", tmp->id.id);
 					}
 				} else {
 					fprintf(stderr, "codegen: AST_FUNCTION_CALL: AST_MEMBER_ACCESS: symbol for %s is not a variable\n", tmp->member_access.object->id.id);
-					exit(1);
+					exit(EXIT_FAILURE);
 				}
 			} else {
 				fprintf(stderr, "codegen: AST_FUNCTION_CALL: AST_MEMBER_ACCESS: object is not an AST_ID\n");
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 		}
 
@@ -5000,12 +5006,27 @@ printf("NOT %s\n", tmp->id.id);
 		}
 		fprintf(out, "if (");
 		codegen(out, node->if_stmt.cond, depth, node);
-		fprintf(out, ") ");
-		codegen(out, node->if_stmt.if_true, depth, node);
+
+		if (node->if_stmt.if_true) {
+			if (node->if_stmt.if_true->type == AST_BLOCK) {
+				fprintf(out, ") ");
+				codegen(out, node->if_stmt.if_true, depth, node);
+			} else {
+				fprintf(out, ")\n");
+				codegen(out, node->if_stmt.if_true, depth + 1, node);
+			}
+		}
+
 		if (node->if_stmt.if_false) {
-			// indent(out, depth);
-			fprintf(out, "else ");
-			codegen(out, node->if_stmt.if_false, depth, node);
+			if (node->if_stmt.if_false->type == AST_BLOCK || node->if_stmt.if_false->type == AST_IF) {
+				fprintf(out, " else ");
+				codegen(out, node->if_stmt.if_false, depth, node);
+			} else {
+				indent(out, depth);
+				fprintf(out, "else\n");
+				codegen(out, node->if_stmt.if_false, depth + 1, node);
+			}
+			fprintf(out, "\n");
 		}
 		break;
 

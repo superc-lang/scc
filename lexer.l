@@ -16,7 +16,7 @@
 extern int yylineno;
 extern int error_count;
 
-char filename[512];
+char filename[256];
 const char *yyfilename = filename;
 
 extern char *yytext;

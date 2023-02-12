@@ -24,8 +24,8 @@ extern void print_ast_tree(FILE *out, union ast_node* node, int depth, union ast
 
 #include "symbol_table.h"
 
-char func_name[256];
-int error_count = 0;
+extern int error_count;
+char func_name[512];
 
 
 static inline union ast_node* maybe_attributes(union ast_node *left, union ast_node *right);
@@ -999,10 +999,12 @@ new_function_declarator
 
 
 delete_function_definition
-	: VOID delete_function_declarator compound_statement
-	{ $$ = create_delete_function_definition_node((void *) & void_node, $2, $3); }
-	| VOID delete_function_declarator ';'
-	{ $$ = create_delete_function_definition_node((void *) & void_node, $2, NULL); }
+	: declaration_specifiers delete_function_declarator compound_statement
+	{ $$ = create_delete_function_definition_node($1, $2, $3); }
+	/* { $$ = create_delete_function_definition_node((void *) & void_node, $2, $3); } */
+	| declaration_specifiers delete_function_declarator ';'
+	{ $$ = create_delete_function_definition_node($1, $2, NULL); }
+	/* { $$ = create_delete_function_definition_node((void *) & void_node, $2, NULL); } */
 	;
 
 delete_function_declarator
