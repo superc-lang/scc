@@ -39,20 +39,5 @@ int main(int argc, const char *argv[])
 
 	str2.dtor();	//	destructor
 
-	if (1) 
-		123;
-		else if (2)
-		678;
-		
-	else 456;
-
-
-	if (1)  {123;}
-		
-		else if (2)
-	{678;}
-		
-	else {456;}
-
 	return 0;
 }
