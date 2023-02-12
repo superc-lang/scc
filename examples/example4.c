@@ -1,92 +1,62 @@
-typedef struct Foo Foo;
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
-struct Foo {
-	int value;
-};
+//	This is just an example of a length prefixed string class.
+//	There would still be many 'gotcha' moments, like when you 'cat' the string,
+//		you would need to re-assign the value because the realloc() might return a new address!
+//	But if you designed a string class like this in C, and had 'helper' methods, you would still land up with the same issues.
 
-int test() {
-	return 0;
-}
 
-// NOTE: The ONLY valid `static` member here, will be for `new`! Which is always implied to be `static`!
-impl Foo
+typedef struct string {
+	size_t _length;
+	char _str[];
+} string;
+
+impl string
 {
-	static void non_static_member()
+	string *new(const char *str)
 	{
-		self.value = 10;
+		size_t len = strlen(str);
+		string *s = (string *) malloc(sizeof(string) + len + 1);
+		s->_length = len;
+		strcpy(s->_str, str);
+		return s;
 	}
 
-	static void non_static_const_member() const	//	Foo *const self
+	get static inline size_t len() => this->_length;
+	get static inline size_t length() => this->_length;
+
+	get static inline const char *str() => this->_str;
+
+	static inline string *cat(const char *str)
 	{
-		self.value;
+		size_t len = strlen(str);
+		string *s = (string *) realloc(this, sizeof(string) + this->_length + len + 1);
+		s->_length += len;
+		strcat(s->_str, str);
+		return s;
 	}
 
-	get static int getter();
-
-	set static int setter(int value)
+	void delete()
 	{
-		self.value = value;
+		free(this);
 	}
-
-	Foo *new();
-	void delete();
-}
-
-impl static Foo
-{
-	int size_of() => sizeof(Foo);
-
-	static void static_member()
-	{
-
-	}
-
-	int test_decl(Foo *self);
-	int test_const(const Foo *self);
-}
-
-typedef long int size_t;
-
-impl static size_t
-{
-	get static size_t min() => 0;
-	get static size_t max() => 0xFFFFFFFFFFFFFFFF;
 }
 
 int main(int argc, const char *argv[])
 {
-	Foo *foo;
+	string *str = new string("Hello");
 
-	Foo.static_member();			//	REAL STATIC member!
-	foo->non_static_member();		//	'NON STATIC' member!
+	printf("str->str: %s\n", str->str);
+	printf("str->len: %lu\n", str->len);
 
-	Foo.size_of();
-	Foo::size_of();
+	str = str->cat(" World!");
 
-	// Foo.non_static_member();		//	ERROR! ... because `non_static_member` requires an instance of `Foo`!
-	// foo->static_member();		//	ERROR! ... because `static_member` requires NO instance of `Foo`!
+	printf("str->str: %s\n", str->str);
+	printf("str->len: %lu\n", str->len);
 
-	foo->non_static_const_member();
-
-	foo->getter;
-
-	Foo *bar = Foo.new();
-	Foo *baz = new Foo();
-
-	delete bar;
-	delete baz;
-
-	size_t.min;
-	size_t::min;
-
-	Foo f;
-	f.getter;
-
-	Foo arr[10];
-
-	arr[4].getter;
-
-	Foo.static_member(&arr[4]);
+	delete str;
 
 	return 0;
 }

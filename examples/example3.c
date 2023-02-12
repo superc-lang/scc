@@ -1,50 +1,18 @@
+#include <stdio.h>
+#include <string.h>
 
-typedef struct {
-	const char *make;
-	const char *model;
-	int year;
-} Car;
-typedef struct Test Test;
-impl Car
+typedef const char String;
+
+impl String
 {
-	static int test()
-	{
-		Test *test = self;				//	NOT STATIC!
-		Test test[10] = { self.foo };	//	NOT STATIC!
-
-		Test *self;						//	AST_STATIC
-		int self;						//	AST_STATIC
-		Test *self[];					//	AST_STATIC
-		Test self[];					//	AST_STATIC
-		Test self[10] = { 0 };			//	AST_STATIC
-	}
-
-	static int static_member()
-	{
-		return 123;
-	}
-
-	static int non_static_member(/* &self */)
-	{
-		return 456;
-	}
+	get static size_t len() => strlen(this);
 }
 
 int main(int argc, const char *argv[])
 {
-	Car *car1;
-	Car *car2;
+	String *str = "Hello World!";
 
-	Car::static_member(car1, car2);		//	REAL STATIC!
-
-	Car::non_static_member(car1);		//	ERROR!
-
-
-	Car *car;
-
-	car->static_member();				//	ERROR!
-
-	car->non_static_member();			//	NOT STATIC!
+	printf("str.len: %lu\n", str->len);
 
 	return 0;
 }
