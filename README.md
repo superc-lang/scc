@@ -50,8 +50,8 @@
 * `new` and `delete` keywords and syntax from C++, map to the `new` and `delete` methods.
 * `age` is a 'getter' (defined by the `get` keyword), as well as a 'fat-arrow function' `=>` (`return` shorthand).
 * In `main()`: `car->age` maps to the `age` 'getter', which is converted to a function called `Car__get__age`.
-* You can choose to use either `self` or `this` inside `impl` methods. The compiler will auto detect it.
-* Just like in C++, but unlike in Rust, you don't need to specify `self` or `this` as the first param, it's implied!
+* You can choose to use either `self` or `this` inside `impl` methods. The compiler will auto detect them.
+* Unlike in Rust, but just like in C++, you don't need to specify `self` or `this` as the first param, it's implied!
 * If you need a method that doesn't take an object instance, like `static` methods in C++, use `impl static <typename>`.
 
 ##### Summary
@@ -275,10 +275,6 @@ Currently, GCC is the only fully tested compiler, since most of my effort has be
 
 ## Possible future features and wishlist
 
-* JavaScript-inspired object destructuring. eg. `const { model, make, year } = this;`
-* Initializer shorthand.
-* `interfaces` from Java/C# and/or Rust-like `traits` - to improve polymorphism!
-* Primary Constructors inspired by Kotlin.
 * *generics*
   ```C
   struct vec3<T> {
@@ -295,11 +291,16 @@ Currently, GCC is the only fully tested compiler, since most of my effort has be
 	float z;
   };
   ```
+* JavaScript-inspired object destructuring. eg. `const { model, make, year } = this;`
+* Initializer shorthand.
+* `interfaces` from Java/C# and/or Rust-like `traits` - to improve polymorphism!
+  * This will probably require a V-table, unless someone has a better suggestion?
+* Primary Constructors inspired by Kotlin.
 * anonymous functions
 * nested functions
 * `let` or `var`, or C++ style `auto` - automatic type inference
 * `defer`
-* 'null safe' operators - `?.` from TypeScript and Kotlin, and/or `?:` and/or `??`
+* 'null safe' operators - `?.` from TypeScript and Kotlin, and/or `?:` (GCC conflict) and/or `??`
 * binary values; eg. `0b0101`
 * `Range` or `Iterator` (requires 'interfaces' or 'traits')
 * `foreach`, implementing either `Range`s or `Iterator`s
@@ -314,6 +315,7 @@ Currently, GCC is the only fully tested compiler, since most of my effort has be
 * `classes` - C++/Java/C# classes (unlikely for now but still possible, but very distant future)
 
 \* These will depend on complexity, workload, requests, funding etc.
+My primary target is to get *generics* implemented, I think it will be a game changer!
 
 
 # Install
@@ -326,6 +328,12 @@ make
 
 The compiler supports all GCC commands. Some commands are executed in the pre-processor phase, and others are executed in the final C code generation phase.
 
+But you don't have to worry about which is which, just use the same commands you would normally use with GCC.
+
+Unfortunately, the compiler doesn't have very sophisticated error messages yet. I rely on GCC to give me the errors, so if you get an error, you will have to look at the C output code to figure out how to modify your code to compile correctly. Every file is compiled with two extra files. `<filename>.pp.i` and `<filename>.i`. The first is the GCC preprocessor output, and the second file is the output from the Super C compiler. The `.pp.i` file will contain the Super C code with all the macros expanded, including `#include` files. So you will see a LOT of extra data, just scroll to the bottom of the file to your code. The second file, `<filename>.i` is the final C code that will be compiled by GCC.
+
+So, essentially the Super C compiler takes the `.pp.i` file, and converts it into the `.i` file. The `.i` file has the final standard C code which is then compiled by GCC.
+
 ```
 scc ./examples/example1.c -o example1
 ```
@@ -334,13 +342,15 @@ I'm still using `.c` extensions for now, but I might change it to `.sc` in the f
 
 The compiler only has 1 extra flag, `-ast` which will generate a 'before' and 'after' AST tree file in `<filename>.ast.before.txt` and `<filename>.ast.after.txt`.
 
+The AST tree generation is probably the most powerful debugging tool for anyone wanting to know how it works internally. And literally every time I add a new feature, I need the AST tree files to implement the feature.
+
 If you specify the `-g` GCC (debug) command, it will also generate the AST tree listings!
 
 ## Limitations
 
 Disclaimer: C programmers are notorious for doing "out of the ordinary" or unconventional things, so I'm 100% sure there are still a million ways you can break the compiler that I haven't thought about. I've just been focusing on the core features for now!
 
-There are many limitations currently, but there are also many positives to take from it so far!
+There are many limitations currently, but there are also many positives to take from this project so far!
 
 Anyways, here's my current list of *major* or obvious issues:
 
@@ -348,8 +358,6 @@ Anyways, here's my current list of *major* or obvious issues:
 * You MUST specify the `struct` as a `typedef` name for use in `impl` blocks. You can't do the following: `impl struct Car`! It's just `impl Car` which must be a `typedef` name!
 * The `new` and `delete` syntax don't work on arrays like the C++ syntax does. (yet!) eg. `new Point[10]` or `delete[] p`.
 * The biggest issue right now, is probably that the 'getter', 'setter' and member method syntax/lookup doesn't work on nested variables. eg. `var1->var2->getter` won't work. The way to solve this currently is to define a local variable for `var2` first, eg. `MyType *var2 = var1->var2`. Then call the 'getter', `var2->getter`, because I don't do multi-level lookups for now. I do plan to get this working in the future since it's required!
-* I haven't tried method chaining, where for example a 'getter' returns another object that you can immediately call another 'getter' on. Baby steps people!
-
-
+* Method chaining won't work either, because I don't have 'deep' knowledge of the function return values and structure layout yet. Baby steps!
 
 # [FAQ](FAQ.md)
