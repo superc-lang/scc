@@ -28,6 +28,8 @@
 * **NOT** affiliated with any big tech company, although I welcome any constructive input.
 * **NOT** a borrow checker (although "opt-in" borrow checking is possible in the future!)
 * **NOT** trying to dictate or enforce any programming philosophy like OOP on you. Use what makes sense!
+* **NOT** currently suitable for beginners or those that don't have a good understand of C.
+
 
 ** All valid C programs are valid Super C programs. It's a 100% compatible superset of C, hence the name, Super(set) C.
 *** You can create Super C 'wrappers' around libraries and structures you don't even own!
