@@ -100,7 +100,6 @@ typedef struct used_datatypes_t {
 %token	<node>		F_CONSTANT
 %token	<node>		ENUMERATION_CONSTANT
 %token	<node>		TYPEDEF_NAME
-%token	<node>		CLASS_NAME		//	experimental, remove if we don't use/need it for Super C!
 
 
 %token	FUNC_NAME
@@ -196,13 +195,6 @@ typedef struct used_datatypes_t {
 /* %token	<node> __FORMAT__ */
 /* %token	<node> __ALIGNED__ */
 
-
-
-
-/* Currently Unused Super C Extensions */
-%token	__FORCEINLINE	//	MSVC __forceinline extension
-%token	FOREACH
-%token	IN				//	conflicted with `in` parameters in some functions!
 
 
 
@@ -316,53 +308,10 @@ type_specifier
 
 %token	FAT_ARROW		//	=>
 
-%token	BYTE
-
-%token	DEFER
-
-%token	VAR
-%token	LET
-
-%token	CONSTRUCTOR
-%token	DESTRUCTOR
-
 %token	GET
 %token	SET
-%token 	READONLY
 
 %token 	IMPL
-%token	CLASS
-%token	EXTENDS
-%token	ABSTRACT
-%token	OPAQUE
-%token	VIRTUAL
-%token	INTERFACE
-%token	FINAL
-%token	PUBLIC
-%token	PRIVATE
-%token	PROTECTED
-%token	INTERNAL
-%token	OVERRIDE
-%token	EXPLICIT
-%token	FRIEND
-%token	OPERATOR
-%token	TYPENAME
-%token	USING
-%token	IMPLEMENTS
-%token	TRAIT
-%token	MIXIN
-%token	TYPE
-
-%token	TEMPLATE
-%token	NAMESPACE
-%token	IMPORT
-%token	PACKAGE
-%token	INSTANCEOF
-%token	NATIVE
-%token	SUPER
-%token	SYNCRONIZED
-%token	TRANSIENT
-
 
 %token	END_OF_FILE
 
@@ -987,7 +936,12 @@ new_function_definition
 	{ $$ = create_new_function_definition_node($1, $2, $3); }
 	| declaration_specifiers new_function_declarator ';'
 	{ $$ = create_new_function_definition_node($1, $2, NULL); }
+	| declaration_specifiers new_function_declarator FAT_ARROW expression ';'
+	{ $$ = create_new_function_definition_node($1, $2, create_block_node(create_return_node($4))); }
 	;
+
+
+
 
 
 new_function_declarator
@@ -1005,6 +959,8 @@ delete_function_definition
 	| declaration_specifiers delete_function_declarator ';'
 	{ $$ = create_delete_function_definition_node($1, $2, NULL); }
 	/* { $$ = create_delete_function_definition_node((void *) & void_node, $2, NULL); } */
+	| declaration_specifiers delete_function_declarator FAT_ARROW expression ';'
+	{ $$ = create_delete_function_definition_node($1, $2, create_block_node(create_return_node($4))); }
 	;
 
 delete_function_declarator
@@ -1358,10 +1314,6 @@ primary_expression
 	| SELF
 	{ $$ = $1; }
 	*/
-
-	| IN	/* This is here to support `in` as an identifier! */
-	{ $$ = (void *) & in_as_id_node; }
-
 
 	/*
 	| NEW STRUCT IDENTIFIER
@@ -1832,8 +1784,6 @@ function_specifier
 	/* GCC __inline and __inline__ extensions */
 	| __INLINE      { $$ = (void *) & ___inline_node; }
 	| __INLINE__    { $$ = (void *) & ___inline__node; }
-	/* Super C extensions */
-	| __FORCEINLINE { $$ = (void *) & ___forceinline_node; }
 	;
 
 alignment_specifier
@@ -1852,7 +1802,6 @@ declarator
 
 direct_declarator
 	: maybe_attributes IDENTIFIER
-	/* { $$ = maybe_attributes($1, $2); } */
 	{ $$ = maybe_attributes($1, $2); }
 
 	| maybe_attributes this_or_self

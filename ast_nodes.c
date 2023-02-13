@@ -284,36 +284,6 @@ struct ast_type_node ___inline__node = { AST__INLINE__ };	// GCC __inline__
 
 
 /*
-//	_MSC_VER
-//	NOTE: For GCC at least, we need to include `inline` as well! So we need a list node!
-#if defined(_MSC_VER)
-struct ast_string_node ___forceinline_node = {
-	AST__ATTRIBUTE__,
-	"__forceinline"
-};
-union ast_node* __forceinline_node = (union ast_node*) &___forceinline_node;
-#elif defined(__GNUC__) || defined(__clang__)
-struct ast_string_node ___always_inline_node = {
-	AST__ATTRIBUTE__,
-	"__attribute__((always_inline))"
-};
-struct ast_list_node ___always_inline_list_node = {
-	AST_LIST,
-	(union ast_node*) &___inline_node,
-	(union ast_node*) &__always_inline_node,
-	" "
-};
-union ast_node* __forceinline_node = (union ast_node*) &__always_inline_list_node;
-#else
-union ast_node* __forceinline_node = (union ast_node*) &___inline_node;
-#endif
-*/
-
-struct ast_type_node ___forceinline_node = { AST__INLINE__ };	// Temporary! Until I get a better solution!
-
-
-
-/*
 jump_statement
 	: GOTO IDENTIFIER ';'
 	| CONTINUE ';'
@@ -467,20 +437,8 @@ struct ast_id_node memset_node   = { AST_ID, 0, "memset" };
 
 struct ast_id_node size_t_node   = { AST_ID, 0, "size_t" };
 
-// struct ast_id_node _this_node = { AST_ID, 0, "this" };
-// struct ast_id_node _self_node = { AST_ID, 0, "self" };
-
 struct ast_type_node this_node = { AST_THIS };
 struct ast_type_node self_node = { AST_SELF };
-
-// struct ast_type_node _blank_id_node = { AST_BLANK_ID };
-
-//	----------------------------------------------------------------------------------------------------------------
-//	----------------------------------------------------------------------------------------------------------------
-
-// struct ast_type_node _private_node   = { AST_PRIVATE };
-// struct ast_type_node _protected_node = { AST_PROTECTED };
-// struct ast_type_node _internal_node  = { AST_INTERNAL };
 
 //	----------------------------------------------------------------------------------------------------------------
 //	----------------------------------------------------------------------------------------------------------------
@@ -490,11 +448,5 @@ struct ast_type_node self_node = { AST_SELF };
 struct ast_id_node new_as_id_node = { AST_ID, 0, "new" };
 struct ast_id_node delete_as_id_node = { AST_ID, 0, "delete" };
 
-struct ast_id_node in_as_id_node = { AST_ID, 0, "in" };
-
 struct ast_id_node get_as_id_node = { AST_ID, 0, "get" };
 struct ast_id_node set_as_id_node = { AST_ID, 0, "set" };
-
-// struct ast_id_node _private_as_id_node = { AST_ID, 0, "private" };
-// struct ast_id_node _protected_as_id_node = { AST_ID, 0, "protected" };
-// struct ast_id_node _internal_as_id_node = { AST_ID, 0, "internal" };

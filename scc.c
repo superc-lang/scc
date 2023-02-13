@@ -4543,26 +4543,30 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 					assert(sym->type == AST_ID);
 					sprintf(func_name, "%s__%s", sym->id.id, tmp->member_access.member->id.id);
 					symbol = symbol_get(func_name);
-					if (symbol == NULL) {
-						fprintf(stderr, "ERROR: function call %s not found\n", tmp->member_access.member->id.id);
-						exit(EXIT_FAILURE);
-					}
+					if (symbol != NULL) {
+						if (tmp->member_access.object->type == AST_ARRAY_SUBSCRIPT) {
+							tmp = create_unary_node(AST_ADDRESS_OF, tmp->member_access.object);
+						} else {
+							tmp = tmp->member_access.object;
+						}
 
-					if (tmp->member_access.object->type == AST_ARRAY_SUBSCRIPT) {
-						tmp = create_unary_node(AST_ADDRESS_OF, tmp->member_access.object);
+						//	We need to attach the member object ID to the function call argument list. eg. car->drive() becomes Car__drive(car); where we've moved the `car` object to the front of the argument list.
+						if (node->function_call.args == NULL) {
+							node->function_call.args = tmp;
+						} else {
+							node->function_call.args = create_list_node(tmp, node->function_call.args, ", ");
+						}
+
+						node->function_call.function = create_id_node(func_name);
+						//  vvv fallthrough to output the new (transpiled) function call!
+
 					} else {
-						tmp = tmp->member_access.object;
-					}
+						//	TODO: I had to disable this to support function pointers!
 
-					//	We need to attach the member object ID to the function call argument list. eg. car->drive() becomes Car__drive(car); where we've moved the `car` object to the front of the argument list.
-					if (node->function_call.args == NULL) {
-						node->function_call.args = tmp;
-					} else {
-						node->function_call.args = create_list_node(tmp, node->function_call.args, ", ");
+						//	WARNING: We could be calling a function pointer!
+						// fprintf(stderr, "ERROR: function call %s not found\n", tmp->member_access.member->id.id);
+						// exit(EXIT_FAILURE);
 					}
-
-					node->function_call.function = create_id_node(func_name);
-					//  vvv fallthrough to output the new (transpiled) function call!
 				}
 			} else {
 				fprintf(stderr, "codegen: AST_FUNCTION_CALL: AST_MEMBER_ACCESS_POINTER: symbol for %s is not a variable\n", tmp->member_access.object->id.id);
@@ -4599,24 +4603,28 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 						assert(sym->type == AST_ID);
 						sprintf(func_name, "%s__%s", sym->id.id, tmp->member_access.member->id.id);
 						symbol = symbol_get(func_name);
-						if (symbol == NULL) {
-							fprintf(stderr, "ERROR: function call %s not found\n", tmp->member_access.member->id.id);
-							exit(EXIT_FAILURE);
-						}
-						// We found a function!
-						// Alter the AST tree to call the function instead.
+						if (symbol != NULL) {
 
-						tmp = create_unary_node(AST_ADDRESS_OF, tmp->member_access.object);
+							// We found a function!
+							// Alter the AST tree to call the function instead.
 
-						if (node->function_call.args == NULL) {
-							node->function_call.args = tmp;
+							tmp = create_unary_node(AST_ADDRESS_OF, tmp->member_access.object);
+
+							if (node->function_call.args == NULL) {
+								node->function_call.args = tmp;
+							} else {
+								node->function_call.args = create_list_node(tmp, node->function_call.args, ", ");
+							}
+
+							node->function_call.function = create_id_node(func_name);
+
+							//	fallthrough to codegen below!
 						} else {
-							node->function_call.args = create_list_node(tmp, node->function_call.args, ", ");
+							//	TODO: I had to disable this to support function pointers!
+
+							// fprintf(stderr, "ERROR: function call %s not found\n", tmp->member_access.member->id.id);
+							// exit(EXIT_FAILURE);
 						}
-
-						node->function_call.function = create_id_node(func_name);
-
-						//	fallthrough to codegen below!
 					}
 				} else {
 					fprintf(stderr, "codegen: AST_FUNCTION_CALL: AST_MEMBER_ACCESS: symbol for %s is not a variable\n", tmp->member_access.object->id.id);
@@ -4650,16 +4658,24 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 		if (tmp->type == AST_ID) {
 			symbol = symbol_get(tmp->id.id);
 			if (symbol != NULL && symbol->is_variable) {
-				assert(symbol->node != NULL);
-				assert(symbol->node->type == AST_ID || symbol->node->type == AST_TYPEDEF_NAME);
-
 				// This will return the data type of the variable, usually a typedef.
 				// We take that typedef name, and append "__get__" with the member name.
 				// We then look for that function in the symbol table.
 				// If it exists, we alter the AST tree to call that function instead.
 				// If it doesn't exist, we leave the AST tree as is.
+				assert(node->member_access.member != NULL);
 				if (node->member_access.member->type == AST_ID) {
-					sprintf(func_name, "%s__get__%s", symbol->node->id.id, node->member_access.member->id.id);
+					assert(symbol->node != NULL);
+
+					union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					if (symbol->node->type == AST_ID) {
+						sym = symbol->node;
+					} else {
+						sym = get_id_node(symbol->node);
+					}
+
+					assert(sym->type == AST_ID);
+					sprintf(func_name, "%s__get__%s", sym->id.id, node->member_access.member->id.id);
 					symbol = symbol_get(func_name);
 					if (symbol != NULL) {
 						// We found the getter function!
@@ -4709,8 +4725,16 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 				assert(node->member_access.member != NULL);
 				if (node->member_access.member->type == AST_ID) {
 					assert(symbol->node != NULL);
-					assert(symbol->node->type == AST_ID || symbol->node->type == AST_TYPEDEF_NAME);
-					sprintf(func_name, "%s__get__%s", symbol->node->id.id, node->member_access.member->id.id);
+
+					union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					if (symbol->node->type == AST_ID) {
+						sym = symbol->node;
+					} else {
+						sym = get_id_node(symbol->node);
+					}
+
+					assert(sym->type == AST_ID);
+					sprintf(func_name, "%s__get__%s", sym->id.id, node->member_access.member->id.id);
 					symbol = symbol_get(func_name);
 					if (symbol != NULL) {
 						// We found the getter function!

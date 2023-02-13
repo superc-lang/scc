@@ -4,13 +4,13 @@
 #include <stdio.h>
 
 
-int start_function(union ast_node *declspecs, union ast_node *declarator)
-{
-	symbol_table_push_scope();
-	union ast_node *function_name = get_id_node(declarator);
+// int start_function(union ast_node *declspecs, union ast_node *declarator)
+// {
+// 	symbol_table_push_scope();
+// 	union ast_node *function_name = get_id_node(declarator);
 
-	return 1;
-}
+// 	return 1;
+// }
 
 const char *get_node_name(int type)
 {

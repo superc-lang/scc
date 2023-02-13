@@ -121,12 +121,6 @@ extern struct ast_type_node noreturn_node;
 extern struct ast_type_node ___inline_node;		// GCC __inline
 extern struct ast_type_node ___inline__node;	// GCC __inline__
 
-/* MSVC __forceinline / GCC __attribute__((always_inline)) */
-//	NOTE: This needs to be more dynamic (GCC and MSVC use different nodes), so I can't use the common above method
-//	The "common" method of defining this as a static union ast_node* and then casting it to a struct ast_type_node* is more efficient
-//	Because this requires us to store the pointer value externally, whereas the common static method doesn't require the pointer to be stored externally!
-extern struct ast_type_node ___forceinline_node;
-
 
 
 
@@ -262,11 +256,5 @@ extern struct ast_type_node self_node;
 extern struct ast_id_node new_as_id_node;
 extern struct ast_id_node delete_as_id_node;
 
-extern struct ast_id_node in_as_id_node;
-
 extern struct ast_id_node get_as_id_node;
 extern struct ast_id_node set_as_id_node;
-
-// extern struct ast_id_node private_as_id_node;
-// extern struct ast_id_node protected_as_id_node;
-// extern struct ast_id_node internal_as_id_node;

@@ -15,6 +15,10 @@
 * designed to be incrementally adoptable. ***
 * inspired by Rust, C++, C#, Java, Kotlin and JavaScript.
 * "zero cost abstractions" without the BS!
+* still a work in progress, so expect missing features or some incompatibility with your existing C code.
+* designed for modern CPU architectures that declare `NULL` as `((void*)0)` (or equivalent). 
+  * This includes all Intel, AMD, ARM, RISC-V, PowerPC, SPARC, MIPS, etc.
+  * Only very old CPUs from the 60's, 70's and 80's don't support this!
 * **NEVER** going to add exceptions or a garbage collector! Ever!
 * **NOT** a replacement for C, C++, Rust, Zig or any other mature systems level language.
 * **NOT** designed to replace C, it builds on top of C.

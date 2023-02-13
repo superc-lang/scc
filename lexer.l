@@ -28,7 +28,6 @@ extern void yyerror(const char *);
 #include "symbol_keys.h"
 
 extern int sym_type(const char *str);  /* returns type from symbol table */
-//#define sym_type(identifier) IDENTIFIER /* with no symbol table, fake it */
 
 // static void comment();
 static int check_type();
@@ -43,7 +42,7 @@ static inline void init_id(struct ast_id_node *id)
 }
 
 
-//	Clear list of C (and Objective-C) keywords: https://android.googlesource.com/toolchain/gcc/+/donut/gcc-4.2.1/gcc/c-parser.c
+//	Good list of C (and Objective-C) keywords: https://android.googlesource.com/toolchain/gcc/+/donut/gcc-4.2.1/gcc/c-parser.c
 
 %}
 
@@ -86,9 +85,6 @@ LINE2		"#[ \t]*[0-9]+[ \t]*(\"([^\"\\\n])*\"[ \t]*)?"
 
 LINE	#[ \t]*([0-9]+)[ \t]*"([^\"])*".*
 
-
-
-
 PP	(#[ \t]*)
 
 %%
@@ -99,15 +95,13 @@ PP	(#[ \t]*)
 
 "//".*						{ /* consume //-comment */ }
 
-"var"						{ return VAR; /* Similar to C++ auto */ }
-"let"						{ return LET; /* Similar to C++ auto */ }
 "__auto_type"				{ return __AUTO_TYPE; /* GCC extension! */ }
 
 "auto"						{ return AUTO; }
 "break"						{ return BREAK; }
 "case"						{ return CASE; }
 "char"						{ return CHAR; }
-"const"						{ return CONST; /* `const` without any other decl specs should act like C++ `auto`! */ }
+"const"						{ return CONST; }
 "continue"					{ return CONTINUE; }
 "default"					{ return DEFAULT; }
 "do"						{ return DO; }
@@ -168,12 +162,6 @@ PP	(#[ \t]*)
 "_Decimal32"				{ return _DECIMAL32; }
 "_Decimal64"				{ return _DECIMAL64; }
 "_Decimal128"				{ return _DECIMAL128; /* https://android.googlesource.com/toolchain/gcc/+/donut/gcc-4.2.1/gcc/c-parser.c */}
-
-"forceinline"				{ return __FORCEINLINE; /* shorthand for: __attribute__((always_inline)) -- MSVC __forceinline extension */ }
-"__forceinline"				{ return __FORCEINLINE; /* shorthand for: __attribute__((always_inline)) -- MSVC __forceinline extension */ }
-"always_inline"				{ return __FORCEINLINE; /* shorthand for: __attribute__((always_inline)) */ }
-"__always_inline"			{ return __FORCEINLINE; /* shorthand for: __attribute__((always_inline)) */ }
-
 
 "__alignof"					{ return __ALIGNOF; }
 "__alignof__"				{ return __ALIGNOF__; }
@@ -299,10 +287,6 @@ PP	(#[ \t]*)
 "asm"						{ return ASM; /* GCC ASM_KEYWORD */ }
 "typeof"					{ return TYPEOF; /* TYPE_QUAL -- GCC extension -- https://gcc.gnu.org/onlinedocs/gcc/Typeof.html -- "If you are writing a header file that must work when included in ISO C programs, write __typeof__ instead of typeof." */ }
 
-
-"foreach"					{ return FOREACH; /* currently unsupported! */ }
-"in"						{ return IN; /* currently unsupported! WARNING: GCC uses this as an input parameter! `extern int inflateBack (z_streamp strm, in_func in, void *in_desc, out_func out, void *out_desc)` */ }
-
 "bool"						{ return BOOL; /* alias for: "_Bool" */ }
 "true"						{ yylval.node = (void *) & digit_node[1]; return I_CONSTANT; /* In future we should add a dedicated "true_node"? One potential issue with "true" is that we could also change any conditions using it to "!= 0" because this is much more efficient than testing "== 1". "Expands to the integer constant 1" */ }
 "false"						{ yylval.node = (void *) & digit_node[0]; return I_CONSTANT; /* "Expands to the integer constant 0" ... In C23, this becomes ((bool)0) and ((bool)1) for true! */ }
@@ -327,7 +311,7 @@ PP	(#[ \t]*)
 "calloc"					{ yylval.node = (void *) & calloc_node; return check_type(); }
 "realloc"					{ yylval.node = (void *) & realloc_node; return check_type(); }
 "free"						{ yylval.node = (void *) & free_node; return check_type(); }
-"alloca"					{ yylval.node = (void *) & alloca_node; return check_type(); /* Not very common, but included anyway! */ }
+"alloca"					{ yylval.node = (void *) & alloca_node; return check_type(); }
 
 "memmove"					{ yylval.node = (void *) & memmove_node; return check_type(); }
 "memcpy"					{ yylval.node = (void *) & memcpy_node; return check_type(); }
@@ -335,57 +319,18 @@ PP	(#[ \t]*)
 
 "size_t"					{ yylval.node = (void *) & size_t_node; return check_type(); }
 
-"new"						{ return NEW;    /* return check_type(); */ }
-"delete"					{ return DELETE; /* return check_type(); */ }
+"new"						{ return NEW; }
+"delete"					{ return DELETE; }
 
-"this"						{ return THIS; /* return check_type(); */ }
-"self"						{ return SELF; /* return check_type(); */ }
+"this"						{ return THIS; }
+"self"						{ return SELF; }
 
-"__byte"					{ return /* BYTE */ CHAR; /* Super C typedef unsigned char byte; */ }
+"get"						{ return GET; }
+"set"						{ return SET; }
 
-"defer"						{ return DEFER; /* Super C defer { ... } ... https://open-std.org/jtc1/sc22/wg14/www/docs/n2895.htm */ }
+"::"						{ return NS; }
 
-"__constructor"				{ return CONSTRUCTOR; /* Super C constructor { ... } */ }
-"__destructor"				{ return DESTRUCTOR; /* Super C destructor { ... } */ }
-
-"get"						{ return GET; /* Super C get name { ... } */ }
-"set"						{ return SET; /* Super C set name(const char *name) { ... } */ }
-"readonly"					{ return READONLY; /* AKA private */ }
-
-"::"						{ return NS; /* pseudo-namespace operator */ /* eg. Car::new(), Car::construct(), Car::myStaticVar */ }
-
-"impl"						{ return IMPL; /* support for Rust's "impl" keyword, which is actually used to define all the methods of their structures! It also acts like C# extension methods! */ }
-"class"						{ return CLASS; }
-"extends"					{ return EXTENDS; }
-"abstract"					{ return ABSTRACT; }
-"opaque"					{ return OPAQUE; }
-"virtual"					{ return VIRTUAL; }
-"interface"					{ return INTERFACE; }
-"final"						{ return FINAL; }
-"public"					{ return PUBLIC; }
-"private"					{ return PRIVATE; }
-"protected"					{ return PROTECTED; }
-"internal"					{ return INTERNAL; }
-"override"					{ return OVERRIDE; }
-"explicit"					{ return EXPLICIT; }
-"friend"					{ return FRIEND; }
-"operator"					{ return OPERATOR; }
-"typename"					{ return TYPENAME; }
-"using"						{ return USING; }
-"implements"				{ return IMPLEMENTS; }
-"trait"						{ return TRAIT; }
-"mixin"						{ return MIXIN; }
-"type"						{ return TYPE; /* AKA type class eg. Int */ }
-
-"template"					{ return TEMPLATE; }
-"namespace"					{ return NAMESPACE; }
-"import"					{ return IMPORT; }
-"package"					{ return PACKAGE; }
-"instanceof"				{ return INSTANCEOF; }
-"native"					{ return NATIVE; }
-"super"						{ return SUPER; }
-"synchronized"				{ return SYNCRONIZED; }
-"transient"					{ return TRANSIENT; }
+"impl"						{ return IMPL; }
 
 {L}{A}*						{ yylval.node = create_id_node(yytext); return check_type(); }
 
