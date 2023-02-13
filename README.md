@@ -244,10 +244,10 @@ Once the language and compiler matures, I would welcome the input from **any** c
 
 ## How does it work?
 
-* The Super C Compiler `scc` calls GCC to pre-process your source file (expanding macros `#include`, `#define`, `#if` etc.). 
-* After GCC has pre-processed the file, it's loaded into the Super C compiler which creates a Super C AST;
-* the Super C AST is then converted into a standard C AST; (the main step)
-* which is then compiled by a standard C compiler into a binary. 
+* The Super C Compiler `scc` calls GCC to pre-process your source file (expanding macros `#include`, `#define`, `#if` etc.). This step creates a new file with the extension `.sc.i`, which contains the pre-processed Super C source code;
+* After GCC has pre-processed your original Super C file, the `.sc.i` file is loaded into the Super C compiler which creates a Super C AST;
+* the Super C AST is then converted into a standard C AST; (the main step), which outputs a `.i` file with standard C code;
+* the `.i` file is then compiled by GCC or a standard C compiler into the final binary. So, you will need to refer to the `.i` file during debugging, because GCC will refer to this file!
 * If you compiled a standard C file there would be nothing extra to convert.
 
 So the Super C compiler is technically a source-to-source transpiler.
@@ -330,9 +330,9 @@ The compiler supports all GCC commands. Some commands are executed in the pre-pr
 
 But you don't have to worry about which is which, just use the same commands you would normally use with GCC.
 
-Unfortunately, the compiler doesn't have very sophisticated error messages yet. I rely on GCC to give me the errors, so if you get an error, you will have to look at the C output code to figure out how to modify your code to compile correctly. Every file is compiled with two extra files. `<filename>.pp.i` and `<filename>.i`. The first is the GCC preprocessor output, and the second file is the output from the Super C compiler. The `.pp.i` file will contain the Super C code with all the macros expanded, including `#include` files. So you will see a LOT of extra data, just scroll to the bottom of the file to your code. The second file, `<filename>.i` is the final C code that will be compiled by GCC.
+Unfortunately, the compiler doesn't have very sophisticated error messages yet. I rely on GCC to give me the errors, so if you get an error, you will have to look at the C output code to figure out how to modify your code to compile correctly. Every file is compiled with two extra files. `<filename>.sc.i` and `<filename>.i`. The first is the GCC preprocessor output, and the second file is the output from the Super C compiler. The `.sc.i` file will contain the Super C code with all the macros expanded, including `#include` files. So you will see a LOT of extra data, just scroll to the bottom of the file to your code. The second file, `<filename>.i` is the final C code that will be compiled by GCC.
 
-So, essentially the Super C compiler takes the `.pp.i` file, and converts it into the `.i` file. The `.i` file has the final standard C code which is then compiled by GCC.
+So, essentially the Super C compiler takes the `.sc.i` file, and converts it into the `.i` file. The `.i` file has the final standard C code which is then compiled by GCC.
 
 ```
 scc ./examples/example1.c -o example1

@@ -449,7 +449,7 @@ void transpile_file(const char *filename)
 	filename_no_ext = filename_no_ext_copy;
 
 	//	Open and write buffer to macro preprocessor output file
-	snprintf(pp_filename, MAX_FILENAME, "%s.pp.i", filename_no_ext);
+	snprintf(pp_filename, MAX_FILENAME, "%s.sc.i", filename_no_ext);
 	FILE *pp_out = fopen(pp_filename, "w+");
 	if (pp_out == NULL) {
 		fprintf(stderr, "ERROR: failed to open output file '%s'\n", pp_filename);
