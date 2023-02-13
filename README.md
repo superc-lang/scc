@@ -1,6 +1,6 @@
 # Super C Compiler
 
-This compiler is dedicated to [Dennis Ritchie](https://en.wikipedia.org/wiki/Dennis_Ritchie), [Ken Thompson](https://en.wikipedia.org/wiki/Ken_Thompson), [Brian Kernighan](https://en.wikipedia.org/wiki/Brian_Kernighan) all the other pioneers of the C programming language.
+This compiler is dedicated to [Dennis Ritchie](https://en.wikipedia.org/wiki/Dennis_Ritchie), [Ken Thompson](https://en.wikipedia.org/wiki/Ken_Thompson), [Brian Kernighan](https://en.wikipedia.org/wiki/Brian_Kernighan) and all the other pioneers of the C programming language.
 
 #### Super C is:
 
