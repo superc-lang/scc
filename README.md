@@ -244,10 +244,14 @@ Once the language and compiler matures, I would welcome the input from **any** c
 
 ## How does it work?
 
-* The Super C Compiler `scc` calls GCC to pre-process your source file (expanding macros `#include`, `#define`, `#if` etc.). This step creates a new file with the extension `.sc.i`, which contains the pre-processed Super C source code;
-* After GCC has pre-processed your original Super C file, the `.sc.i` file is loaded into the Super C compiler which creates a Super C AST;
-* the Super C AST is then converted into a standard C AST; (the main step), which outputs a `.i` file with standard C code;
-* the `.i` file is then compiled by GCC or a standard C compiler into the final binary. So, you will need to refer to the `.i` file during debugging, because GCC will refer to this file!
+* The Super C Compiler `scc` calls GCC to pre-process your source file (expanding macros `#include`, `#define`, `#if` etc.).
+* The first step creates a new `.sc.i` file, which contains the pre-processed Super C source code;
+* The `.sc.i` file is loaded into the Super C compiler which creates a Super C AST;
+* The Super C AST is converted into a standard C AST; (the most important step)
+* From the standard C AST we generage a new `.i` file with the final standard C compliant code;
+* The `.i` file is finally compiled by GCC into the final binary;
+* The `.i` extension on files indicates to GCC that the file has already been preprocessed, so GCC skips that step;
+* You will need to refer to the `.i` file during debugging, because GCC will be generating syntax errors from it!
 * If you compiled a standard C file there would be nothing extra to convert.
 
 So the Super C compiler is technically a source-to-source transpiler.
