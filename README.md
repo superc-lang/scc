@@ -364,4 +364,7 @@ Anyways, here's my current list of *major* or obvious issues:
 * The biggest issue right now, is probably that the 'getter', 'setter' and member method syntax/lookup doesn't work on nested variables. eg. `var1->var2->getter` won't work. The way to solve this currently is to define a local variable for `var2` first, eg. `MyType *var2 = var1->var2`. Then call the 'getter', `var2->getter`, because I don't do multi-level lookups for now. I do plan to get this working in the future since it's required!
 * Method chaining won't work either, because I don't have 'deep' knowledge of the function return values and structure layout yet. Baby steps!
 
+
+## In loving memory of [Dennis Ritchie](https://en.wikipedia.org/wiki/Dennis_Ritchie)!
+
 # [FAQ](FAQ.md)
