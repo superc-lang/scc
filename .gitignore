@@ -1,3 +1,10 @@
+.vscode
+.vscode/
+.vscode/*
+.vscode/**/*
+.vscode/settings.json
+.vscode/extensions.json
+
 *~
 \#*
 .#*
@@ -19,7 +26,6 @@ a.out
 scc
 build
 test
-.vscode
 *.json
 
 tags
