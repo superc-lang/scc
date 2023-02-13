@@ -21,6 +21,7 @@ This compiler is dedicated to [Dennis Ritchie](https://en.wikipedia.org/wiki/Den
 * designed for modern CPU architectures that declare `NULL` as `((void*)0)` (or equivalent). 
   * This includes all Intel, AMD, ARM, RISC-V, PowerPC, SPARC, MIPS, etc.
   * Only very old CPUs from the 60's, 70's and 80's don't support this!
+* originally based on the C11 standard (and still compatible), but now includes many enhancements.
 * **NEVER** going to add exceptions or a garbage collector! Ever!
 * **NOT** a replacement for C, C++, Rust, Zig or any other mature systems level language.
 * **NOT** designed to replace C, it builds on top of C.
