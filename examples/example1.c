@@ -27,25 +27,16 @@ impl Car
 		return car;
 	}
 
-	get static inline int age() => 2023 - self.year;
-
-	int test()
-	{
-		Car *test = self;
-	}
+	get static inline int age() => 2023 - self->year;
 
 	const char *make_model()
 	{
 		static char make_model[128];
 
-		strcpy(make_model, self.make);
-		strcat(make_model, " ");
-		strcat(make_model, self.model);
+		sprintf(make_model, "%s %s", self->make, self->model);
 
 		return make_model;
 	}
-
-	static int static_member();
 
 	void delete()
 	{

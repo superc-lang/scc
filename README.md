@@ -51,14 +51,13 @@
 * `age` is a 'getter' (defined by the `get` keyword), as well as a 'fat-arrow function' `=>` (`return` shorthand).
 * In `main()`: `car->age` maps to the `age` 'getter', which is converted to a function called `Car__get__age`.
 * You can choose to use either `self` or `this` inside `impl` methods. The compiler will auto detect it.
-* Just like in C++, you don't need to specify `self` or `this` as the first param, it's implied! Unlike Rust.
-* `impl static <typename>` is for methods that don't take an instance. Like `static` class methods in C++.
+* Just like in C++, but unlike in Rust, you don't need to specify `self` or `this` as the first param, it's implied!
+* If you need a method that doesn't take an object instance, like `static` methods in C++, use `impl static <typename>`.
 
 ##### Summary
 
 | Super C            | C output              |
 | ------------------ | --------------------- |
-| `self.make`        | `self->make`          |
 | `impl Car`         | -                     |
 | `new Car(...);`    | `Car__new(...);`      |
 | `delete car;`      | `Car__delete(car);`   |
@@ -100,15 +99,13 @@ typedef struct {
 	{
 		static char make_model[128];
 
-		strcpy(make_model, self.make);
-		strcat(make_model, " ");
-		strcat(make_model, self.model);
+		sprintf(make_model, "%s %s", self->make, self->model);
 
 		return make_model;
 	}
 
 -	int car_age(Car *self) { return 2023 - self->year; }
-+	get int age() => 2023 - self.year;
++	get int age() => 2023 - self->year;
 
 -	void car_free(Car *self)
 +	void delete()
@@ -150,7 +147,6 @@ int main(int argc, char *argv[])
 
 | Super C            | C output                    |
 | ------------------ | --------------------------- |
-| `this.x`           | `this->x`                   |
 | `impl Point`       | -                           |
 | `new Point(0, 0);` | `Point__new(0, 0);`         |
 | `delete p1;`       | `Point__delete(p1);`        |
