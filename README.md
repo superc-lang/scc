@@ -1,6 +1,4 @@
-# Super C Compiler
-
-This compiler is dedicated to [Dennis Ritchie](https://en.wikipedia.org/wiki/Dennis_Ritchie), [Ken Thompson](https://en.wikipedia.org/wiki/Ken_Thompson), [Brian Kernighan](https://en.wikipedia.org/wiki/Brian_Kernighan) and all the other pioneers of the C programming language.
+# Super C Language & Compiler
 
 #### Super C is:
 
@@ -10,17 +8,13 @@ This compiler is dedicated to [Dennis Ritchie](https://en.wikipedia.org/wiki/Den
 * as fast as C. (because it is C)
 * more concise than C. (shorter syntax)
 * compiled to machine code by an existing C compiler such as GCC.
-* a passion project that has taken thousands of hours and still in active development (as of Feb 2023).
+* a passion project that has taken several months and still in active development (as of Feb 2023).
 * C with syntactic sugar (eye candy). **
 * for C and non-C programmers that want more syntactical options and design flexibility; haters be gone!
 * going to divide opinion on it's value, features, keywords, usage and place in the C community.
 * designed to be incrementally adoptable. ***
 * inspired by Rust, C++, C#, Java, Kotlin and JavaScript.
 * "zero cost abstractions" without the BS!
-* still a work in progress, so expect missing features or some incompatibility with your existing C code.
-* designed for modern CPU architectures that declare `NULL` as `((void*)0)` (or equivalent). 
-  * This includes all Intel, AMD, ARM, RISC-V, PowerPC, SPARC, MIPS, etc.
-  * Only very old CPUs from the 60's, 70's and 80's don't support this!
 * originally based on the C11 standard (and still compatible), but now includes many enhancements.
 * **NEVER** going to add exceptions or a garbage collector! Ever!
 * **NOT** a replacement for C, C++, Rust, Zig or any other mature systems level language.
@@ -35,9 +29,10 @@ This compiler is dedicated to [Dennis Ritchie](https://en.wikipedia.org/wiki/Den
 
 
 ** All valid C programs are valid Super C programs. It's a 100% compatible superset of C, hence the name, Super(set) C.
-*** You can create Super C 'wrappers' around libraries and structures you don't even own!
 
-> Syntactic Sugar
+*** You can create Super C 'wrappers' around libraries and structures you don't even own! By leaving the original C code untouched, and adding checks for `__SUPERC__` around the wrappers, you can gradually add Super C features to your code base, one file at a time. As well as supporting a standard C interface. Check the `examples/` directory for an example in `multi-file3` where I support both a standard C and Super C interface to a hash table implementation.
+
+> Syntactic Sugar\
 > "syntax within a programming language that is designed to make things easier to read or to express."
 
 ## Example 1:
@@ -48,7 +43,7 @@ This compiler is dedicated to [Dennis Ritchie](https://en.wikipedia.org/wiki/Den
 * The final C output of this example is available here: https://godbolt.org/z/TvGT4WEbz
 * In every scenario, the Super C syntax is more concise and arguably easier to read and maintain.
 * `impl` statements inspired by Rust. Keeps data structures and member methods separated.
-	The 'typename' in `impl <typename>` acts as a namespace and common prefix for method names.
+	The 'typename' in `impl <typename>` acts as a namespace and common prefix for method names.\
 	eg. all `Foo` class/structure methods get a `Foo__` prefix.
 * `new` and `delete` keywords and syntax from C++, map to the `new` and `delete` methods.
 * `age` is a 'getter' (defined by the `get` keyword), as well as a 'fat-arrow function' `=>` (`return` shorthand).
@@ -97,8 +92,8 @@ typedef struct {
 		return car;
 	}
 
--	const char *car_make_model(Car *self)
-+	const char *make_model()
+-	const char *car_make_model(const Car *self)
++	const char *make_model() const
 	{
 		static char make_model[128];
 
@@ -107,8 +102,8 @@ typedef struct {
 		return make_model;
 	}
 
--	int car_age(Car *self) { return 2023 - self->year; }
-+	get int age() => 2023 - self->year;
+-	int car_age(const Car *self) { return 2023 - self->year; }
++	get int age() const => 2023 - self->year;
 
 -	void car_free(Car *self)
 +	void delete()
@@ -148,15 +143,16 @@ int main(int argc, char *argv[])
 
 ##### Summary
 
-| Super C            | C output                    |
-| ------------------ | --------------------------- |
-| `impl Point`       | -                           |
-| `new Point(0, 0);` | `Point__new(0, 0);`         |
-| `delete p1;`       | `Point__delete(p1);`        |
-| `p1->distance(p2)` | `Point__distance(p1, p2)`   |
-| `p1->angle(p2)`    | `Point__angle(p1, p2)`      |
-| `p1->magnitude`    | `Point__get__magnitude(p1)` |
-| `=> ...`           | `{ return ... }`            |
+| Super C             | C output                    |
+| ------------------- | --------------------------- |
+| `impl Point`        | -                           |
+| `new Point(0, 0)`   | `Point__new(0, 0)`          |
+| `delete p1;`        | `Point__delete(p1);`        |
+| `p1->distance(p2)`  | `Point__distance(p1, p2)`   |
+| `p1->angle(p2)`     | `Point__angle(p1, p2)`      |
+| `p1->magnitude`     | `Point__get__magnitude(p1)` |
+| `magnitude() const` | `Point__magnitude(const Point *this)` |
+| `=> ...`            | `{ return ... }`            |
 
 ```diff
 -// standard C syntax
@@ -185,8 +181,8 @@ typedef struct {
 		return p;
 	}
 
--	float point_distance(Point *this, Point *p2)
-+	float distance(Point *p2)
+-	float point_distance(const Point *this, Point *p2)
++	float distance(Point *p2) const
 	{
 		int dx = this->x - p2->x;
 		int dy = this->y - p2->y;
@@ -194,11 +190,11 @@ typedef struct {
 		return sqrt(dx * dx + dy * dy);
 	}
 
--	float point_angle(Point *this, Point *p2) { return atan2(p2->y - this->y, p2->x - this->x); }
-+	float angle(Point *p2) => atan2(p2->y - this->y, p2->x - this->x);
+-	float point_angle(const Point *this, Point *p2) { return atan2(p2->y - this->y, p2->x - this->x); }
++	float angle(Point *p2) const => atan2(p2->y - this->y, p2->x - this->x);
 
--	float point_magnitude(Point *this) { return sqrt(this->x * this->x + this->y * this->y); }
-+	get float magnitude() => sqrt(this->x * this->x + this->y * this->y);
+-	float point_magnitude(const Point *this) { return sqrt(this->x * this->x + this->y * this->y); }
++	get float magnitude() const => sqrt(this->x * this->x + this->y * this->y);
 
 -	void point_free(Point *this)
 +	void delete()
@@ -235,31 +231,28 @@ int main(int argc, char *argv[])
 
 ##### Disclaimer on the term 'standard C'!
 
-By the term 'standard C compliant', what do I mean? ... actually I don't even know what anyone means by that term, because it's ambiguous! Do you mean the original K&R C? ANSI C? ISO C90? C95? C99? C11? C17? C2x? Or a particular compiler implementation?
+Q: By the term 'standard C compliant', what do I mean?\
+A: I mean that this compiler was originally based on the C11 specification, but needed many enhancements and extensions to be compatible with GCC generated output; which includes many of it's own compiler specific extensions, even to the standard C syntax.
 
-But besides the various C 'standards', which often introduce or deprecate features, which immediately creates a moving target, the compilers themselves implement compiler specific extensions and features which are not always compatible with each other or 'the standard'.
+This is a 'best effort' attempt to support as many variations and extensions to the 'standard C' syntax, and as many C compilers as possible! I'm not there yet! Currently I only support GCC, but I would like to support at least GCC, Clang, MSVC, PCC, TCC and LCC in the future.
 
-Although I might have a 100% '*compliant*' parser for GCC, and I want it to be 100% 'standard C' compliant; there is actually NO compiler on the planet which is 100% 'standard C' compliant, because 'standard C' doesn't actually exist (without ambiguity); it means different things to different people at different times and in different contexts. You could say that your compiler is C11 compliant, but the 'C standard' is a moving target and always evolving. So what was once a 'C compliant' compiler, might no longer be compliant with 'the latest C standard'.
-
-So, this is a 'best effort' attempt to support as many variations of the 'C standard' and C compilers as possible! I'm not there yet though! I just support GCC for now, but I would like to support at least GCC, Clang, MSVC, PCC, TCC and LCC in the future.
-
-Once the language and compiler matures, I would welcome the input from **any** compiler devs to help me make it more compatible with their compilers.
+So I welcome the input from **any** compiler devs to help me make it more compatible with their compilers.
 
 ## How does it work?
 
 * The Super C Compiler `scc` calls GCC to pre-process your source file (expanding macros `#include`, `#define`, `#if` etc.).
-* The first step creates a new `.sc.i` file, which contains the pre-processed Super C source code;
-* The `.sc.i` file is loaded into the Super C compiler which creates a Super C AST;
-* The Super C AST is converted into a standard C AST; (the most important step)
-* From the standard C AST we generage a new `.i` file with the final standard C compliant code;
-* The `.i` file is finally compiled by GCC into the final binary;
+* The first step creates a new file; `<filename>.sc.i` which contains the expanded Super C source code;
+* The Super C compiler creates an AST (abstract syntax tree) from the `<filename>.sc.i` file;
+* The Super C AST is converted into a 'standard C' AST; (the actual conversion and most important step)
+* From the standard C AST we generage a new `.i` file with the final standard C compliant source code;
+* The source code generated from the `.i` file is compiled by GCC into the final binary;
 * The `.i` extension on files indicates to GCC that the file has already been preprocessed, so GCC skips that step;
 * You will need to refer to the `.i` file during debugging, because GCC will be generating syntax errors from it!
 * If you compiled a standard C file there would be nothing extra to convert.
 
 So the Super C compiler is technically a source-to-source transpiler.
 
-Currently, GCC is the only fully tested compiler, since most of my effort has been directed at the actual language features, and not compiler integration. But I fully intend to support multiple compilers, any help or suggestions from the compiler devs are welcome.
+Currently, GCC is the only fully tested compiler, since most of my effort has been directed at the actual language features and design, and not compiler integration. But I fully intend to support multiple compilers, any help or suggestions from other compiler devs are welcome.
 
 ## New Keywords
 
@@ -307,7 +300,7 @@ Currently, GCC is the only fully tested compiler, since most of my effort has be
 * nested functions
 * `let` or `var`, or C++ style `auto` - automatic type inference
 * `defer`
-* 'null safe' operators - `?.` from TypeScript and Kotlin, and/or `?:` (GCC conflict) and/or `??`
+* 'null safe' operators - `?.` from TypeScript and Kotlin, and/or `?:` and/or `??`
 * binary values; eg. `0b0101`
 * `Range` or `Iterator` (requires 'interfaces' or 'traits')
 * `foreach`, implementing either `Range`s or `Iterator`s
@@ -366,6 +359,10 @@ Anyways, here's my current list of *major* or obvious issues:
 * The `new` and `delete` syntax don't work on arrays like the C++ syntax does. (yet!) eg. `new Point[10]` or `delete[] p`.
 * The biggest issue right now, is probably that the 'getter', 'setter' and member method syntax/lookup doesn't work on nested variables. eg. `var1->var2->getter` won't work. The way to solve this currently is to define a local variable for `var2` first, eg. `MyType *var2 = var1->var2`. Then call the 'getter', `var2->getter`, because I don't do multi-level lookups for now. I do plan to get this working in the future since it's required!
 * Method chaining won't work either, because I don't have 'deep' knowledge of the function return values and structure layout yet. Baby steps!
+
+### Dedication
+
+This language and compiler is dedicated to [Dennis Ritchie](https://en.wikipedia.org/wiki/Dennis_Ritchie), [Ken Thompson](https://en.wikipedia.org/wiki/Ken_Thompson) and [Brian Kernighan](https://en.wikipedia.org/wiki/Brian_Kernighan).
 
 
 # [FAQ](FAQ.md)
