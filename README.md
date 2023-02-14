@@ -10,10 +10,10 @@
 * compiled to machine code by an existing C compiler such as GCC.
 * a passion project that has taken several months and still in active development (as of Feb 2023).
 * C with syntactic sugar (eye candy). **
-* for C and non-C programmers that want more syntactical options and design flexibility; haters be gone!
+* for people that wanted more syntactical options and design flexibility in C; haters be gone!
 * going to divide opinion on it's value, features, keywords, usage and place in the C community.
 * designed to be incrementally adoptable. ***
-* inspired by Rust, C++, C#, Java, Kotlin and JavaScript.
+* heavily inspired by Rust and C++; but also influenced by D, C#, Java, Kotlin and JavaScript.
 * "zero cost abstractions" without the BS!
 * originally based on the C11 standard (and still compatible), but now includes many enhancements.
 * **NEVER** going to add exceptions or a garbage collector! Ever!
@@ -244,7 +244,7 @@ So I welcome the input from **any** compiler devs to help me make it more compat
 * The first step creates a new file; `<filename>.sc.i` which contains the expanded Super C source code;
 * The Super C compiler creates an AST (abstract syntax tree) from the `<filename>.sc.i` file;
 * The Super C AST is converted into a 'standard C' AST; (the actual conversion and most important step)
-* From the standard C AST we generage a new `.i` file with the final standard C compliant source code;
+* From the standard C AST we generate a `.i` file containing the final standard C compliant code;
 * The source code generated from the `.i` file is compiled by GCC into the final binary;
 * The `.i` extension on files indicates to GCC that the file has already been preprocessed, so GCC skips that step;
 * You will need to refer to the `.i` file during debugging, because GCC will be generating syntax errors from it!
