@@ -2,9 +2,6 @@
 
 #include <stdlib.h>
 
-union ast_node;
-extern union ast_node *ast_root;
-
 typedef enum ast_node_type {
 	AST_ROOT,
 
@@ -163,6 +160,18 @@ typedef enum ast_node_type {
 	*/
 	AST_STRUCT,
 	AST_UNION,
+
+
+	/*
+	generic_specifier
+		: GENERIC_NAME '<' generic_type_specifiers '>'
+		;
+	*/
+	AST_GENERIC_DECLARATION,
+
+	AST_GENERIC_STRUCT,
+	AST_GENERIC_UNION,
+
 
 
 	/*
@@ -651,6 +660,12 @@ AST__ALIGNED__,
 	AST_IMPL,
 	AST_STATIC_IMPL,
 
+	// AST_GENERIC_NAME,	//	eg. in `Vec3<T>`, `Vec3` would be the generic name! ... Isn't this just the same as AST_TYPEDEF_NAME or AST_IDENTIFIER?
+
+	AST_GENERIC_LIST,		//	required to produce special separators for generic types, eg. `Vec3<T, U, V>` ==> `Vec3__long__long__long__long` is too ambiguous! Is it: `long long, long, long` or `long, long long, long` or `long, long, long long`?
+	AST_GENERIC_IMPL,
+	AST_GENERIC_STATIC_IMPL,
+
 	// AST_NEW,				//	"new" is actually converted to a regular function call during parsing stage, we detect the "new" keyword and we also have the TYPEDEF_NAME at the same time.
 	AST_DELETE_OPERATOR,	//	Creates a "regular" function call during processing. Works a bit different to "new" though, because "new" usually comes with the object type as part of the "new" statement, eg. "new Foo()" which can easily be converted to "Foo__new()". But "delete" doesn't have the object type, only a variable name to delete; we have to do a manual lookup for the object type for that variable, eg. "delete foo;" will need to be converted to "Foo__delete(foo)", where we need to lookup "Foo", which is the object/struct/typedef type name of the variable!
 	AST_NEW_ARRAY,
@@ -666,7 +681,7 @@ AST__ALIGNED__,
 	AST_GETTER,
 	AST_SETTER,
 
-	AST_BLANK_ID,					//	eg. my_func(&); ... also used during parsing of the AST_DELETE_OPERATOR
+	// AST_BLANK_ID,					//	eg. my_func(&); ... also used during parsing of the AST_DELETE_OPERATOR
 
 	AST_IMPL_FUNCTION_DECLARATION,  // NOTE: During "impl" processing, the type is changed to AST_FUNCTION_DEFINITION! This is probably wrong, because normal function declarations don't use this type! We just use it so it can "output" the correct source code!
 
@@ -683,6 +698,10 @@ AST__ALIGNED__,
 
 
 	AST_DUMMY,
+
+	AST__NO_OP__,			//	Going to add this, so we NEVER have a 'NULL' node! This is so the traversal jump_table can avoid checking for NULL nodes, especially if we remove something from an AST_LIST node, because I want to avoid the NULL checks for AST_LIST!
+
+	AST__LAST__				//	NOTE: This is used to determine the size of the `ast_node_type` enum, so it must be the last item in the enum!
 } ast_node_type;
 
 
@@ -724,14 +743,14 @@ struct ast_condition_node {
 };
 
 
-//	Generic list node
 struct ast_list_node {
-	int type;						//	AST_LIST
+	int type;						//	AST_LIST | AST_GENERIC_LIST
 	union ast_node *node;
 	union ast_node *next;
 	const char *separator;
 };
 union ast_node *create_list_node(union ast_node *node, union ast_node *next, const char *separator);
+union ast_node *create_generic_list_node(union ast_node *node, union ast_node *next);
 
 
 struct ast_id_node {
@@ -836,18 +855,53 @@ struct_or_union_specifier
 	;
 
 struct_or_union
-	: STRUCT
-	{ $$ = AST_STRUCT; }
-	| UNION
-	{ $$ = AST_UNION; }
+	: STRUCT	{ $$ = AST_STRUCT; }
+	| UNION		{ $$ = AST_UNION; }
 	;
 */
 struct ast_struct_or_union_node {
 	int type;						//	AST_STRUCT | AST_UNION
 	union ast_node *id;
-	union ast_node *decl_list;		//	decl_list
+	union ast_node *decl_list;
 };
 union ast_node *create_struct_or_union_node(int type, union ast_node *id, union ast_node *decl_list);
+
+
+/*
+struct_or_union_specifier
+	...
+	| struct_or_union identifier '<' generic_type_list '>' '{' struct_declaration_list '}'
+	;
+
+generic_type_list
+	: IDENTIFIER
+	| generic_type_list ',' IDENTIFIER
+	;
+*/
+// struct ast_generic_struct_or_union_node {
+// 	int type;						//	AST_GENERIC_STRUCT | AST_GENERIC_UNION
+// 	union ast_node *id;
+// 	union ast_node *type_list;
+// 	union ast_node *decl_list;
+// };
+// union ast_node *create_generic_struct_or_union_node(int type, union ast_node *id, union ast_node *type_list, union ast_node *decl_list);
+
+
+/*
+generic_specifier
+	: IDENTIFIER '<' generic_type_specifiers '>'
+	;
+*/
+struct ast_generic_type_node {
+	int type;						//	AST_GENERIC
+	union ast_node *id;
+	union ast_node *type_list;
+};
+// union ast_node *create_generic_specifier_node(union ast_node *id, union ast_node *type_list);
+union ast_node *create_generic_declaration_node(union ast_node *id, union ast_node *type_list);
+
+
+
 
 
 /*
@@ -1091,10 +1145,11 @@ expression_statement
 	| expression ';'
 	;
 */
-struct ast_expression_statement_node {
-	int type;									//	AST_EXPRESSION_STATEMENT
-	union ast_node *expr;
-};
+// struct ast_expression_statement_node {
+// 	int type;									//	AST_EXPRESSION_STATEMENT
+// 	union ast_node *expr;
+// };
+//	UPDATE: Converted to `unary` node!
 union ast_node *create_expression_statement_node(union ast_node *expr);
 
 
@@ -1346,10 +1401,11 @@ primary_expression
 	| generic_selection
 	;
 */
-struct ast_expression_group_node {
-	int type;									//	AST_EXPRESSION_GROUP
-	union ast_node *expr;
-};
+// struct ast_expression_group_node {
+// 	int type;									//	AST_EXPRESSION_GROUP
+// 	union ast_node *expr;
+// };
+//	UPDATE: converted to `unary` node!
 union ast_node *create_expression_group_node(union ast_node *expr);
 
 
@@ -1514,14 +1570,14 @@ struct ast_dynamic_array_node {
 	union ast_node *direct_declarator;
 	union ast_node *type_qualifier_list;
 };
-struct ast_static_array_node {
-	int type;									//	AST_STATIC_ARRAY
-	union ast_node *direct_declarator;
-	union ast_node *type_qualifier_list;
-	union ast_node *expr;
-};
+// struct ast_static_array_node {
+// 	int type;									//	AST_STATIC_ARRAY
+// 	union ast_node *direct_declarator;
+// 	union ast_node *type_qualifier_list;
+// 	union ast_node *expr;
+// };
 struct ast_array_node {
-	int type;									//	AST_ARRAY
+	int type;									//	AST_ARRAY | AST_STATIC_ARRAY
 	union ast_node *direct_declarator;
 	union ast_node *type_qualifier_list;
 	union ast_node *expr;
@@ -1652,7 +1708,21 @@ struct ast_impl_node {
 	union ast_node *body;
 };
 union ast_node *create_impl_node(union ast_node *id, union ast_node *interface, union ast_node *body);
-union ast_node *create_static_impl_node(union ast_node *id, union ast_node *body);
+union ast_node *create_static_impl_node(union ast_node *id, union ast_node *interface, union ast_node *body);
+
+
+// struct ast_generic_impl_node {
+// 	int type;									//	AST_GENERIC_IMPL || AST_GENERIC_STATIC_IMPL
+// 	union ast_node *id;
+// 	// union ast_node *type_list;
+// 	union ast_node *interface;
+// 	union ast_node *body;
+// };
+union ast_node *create_generic_impl_node(union ast_node *id, union ast_node *interface, union ast_node *body);
+union ast_node *create_generic_static_impl_node(union ast_node *id, union ast_node *interface, union ast_node *body);
+
+
+
 
 
 // struct ast_new_node {
@@ -1688,8 +1758,9 @@ union ast_node *create_delete_operator_node(union ast_node *obj);
 // AST_GETTER / AST_SETTER
 union ast_node *create_getter_node(union ast_node *decl_specs, union ast_node *declarator, union ast_node *block);
 union ast_node *create_setter_node(union ast_node *decl_specs, union ast_node *declarator, union ast_node *block);
-union ast_node *create_getter_or_setter_node(int type, union ast_node *decl_specs, union ast_node *declarator, union ast_node *block);
-
+// This WAS called `create_getter_or_setter_node` ... however, I changed it to be more generic! Since I actually use it in the 'generics' implementation!
+//union ast_node *create_getter_or_setter_node(int type, union ast_node *decl_specs, union ast_node *declarator, union ast_node *block);
+union ast_node *create_impl_function_node(int type, union ast_node *decl_specs, union ast_node *declarator, union ast_node *block);
 
 
 /*
@@ -1746,7 +1817,7 @@ union ast_node {
 	struct ast_direct_abstract_declarator_node direct_abstract_declarator;
 	struct ast_function_definition_node function_definition;
 	struct ast_parameter_declaration_node parameter_declaration;
-	struct ast_expression_group_node expression_group;
+	// struct ast_expression_group_node expression_group;			//	Converted to `unary` node!
 
 
 	//	-----------------------------------------------------------------------
@@ -1795,7 +1866,7 @@ union ast_node {
 
 	//	-----------------------------------------------------------------------
 	//	`expression_statement`
-	struct ast_expression_statement_node expr_stmt;
+	// struct ast_expression_statement_node expr_stmt;	//	No longer used! Converted to `unary` node!
 
 	//	-----------------------------------------------------------------------
 	//	`selection_statement`
@@ -1825,7 +1896,7 @@ union ast_node {
 	struct ast_grouped_declarator_node grouped_declarator;
 	struct ast_unspecified_array_node unspecified_array;
 	struct ast_dynamic_array_node dynamic_array;
-	struct ast_static_array_node static_array;
+	// struct ast_static_array_node static_array;
 	struct ast_array_node array;
 	struct ast_function_declarator_node function_declarator;
 
@@ -1836,6 +1907,11 @@ union ast_node {
 	//	-----------------------------------------------------------------------
 	//	Super C extensions
 	struct ast_impl_node impl;
+
+	struct ast_generic_type_node generic_type;
+	// struct ast_generic_type_node generic_specifier;
+	// struct ast_generic_type_node generic_declaration;
+
 
 	// struct ast_new_node new;
 	// struct ast_delete_node delete;

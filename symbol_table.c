@@ -220,6 +220,29 @@ int symbol_is_typedef(const char *key)
 	int result = symbol_is(key, symbol_is_typedef_callback);
 	return result > 0;
 }
+
+
+int symbol_is_generic_name_callback(symbol_t *symbol)
+{
+	return symbol->is_generic_name ? symbol->is_generic_name : -1;
+}
+int symbol_is_generic_name(const char *key)
+{
+	return symbol_is(key, symbol_is_generic_name_callback) > 0;
+}
+
+int symbol_is_generic_type_callback(symbol_t *symbol)
+{
+	return symbol->is_generic_type ? symbol->is_generic_type : -1;
+}
+int symbol_is_generic_type(const char *key)
+{
+	return symbol_is(key, symbol_is_generic_type_callback) > 0;
+}
+
+
+
+
 // int symbol_is_typedef(const char *key)
 // {
 // 	return symbol_is(key, s => s->is_typedef ?: -1);
@@ -362,6 +385,65 @@ symbol_t *symbol_add_pointer(const char *key, union ast_node *node)
 }
 
 
+//	NOTE: At this point, I think the `node` will always be NULL!
+//	We `update` the symbol with the `node` at the end of the declaration!
+//	This is so that structures can use the 'parent' structure internally, like linked list nodes pointing to themselves!
+symbol_t *symbol_add_generic_name(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_add(key);
+
+	symbol->is_generic_name = 1;
+	symbol->node = node;
+
+	return symbol;
+}
+symbol_t *symbol_add_generic_type(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_add(key);
+
+	symbol->is_generic_type = 1;
+	symbol->node = node;
+
+	return symbol;
+}
+symbol_t *symbol_add_generic_impl(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_add(key);
+
+	symbol->is_generic_impl = 1;
+	symbol->node = node;
+
+	return symbol;
+}
+symbol_t *symbol_add_generic_static_impl(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_add(key);
+
+	symbol->is_generic_static_impl = 1;
+	symbol->node = node;
+
+	return symbol;
+}
+
+
+symbol_t *symbol_update_generic_name(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_get(key);
+
+	assert(symbol != NULL);
+	assert(symbol->is_generic_name == 1);
+	assert(symbol->node == NULL);
+
+	symbol->node = node;
+
+	return symbol;
+}
+
+
+
+
+
+
 
 symbol_t *symbol_add_parameter(const char *key, union ast_node *node)
 {
@@ -429,6 +511,25 @@ symbol_t *symbol_add_setter(const char *key, union ast_node *node)
 
 	return symbol;
 }
+
+
+
+symbol_t *symbol_add_generic_struct_or_union(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_add(key);
+
+	// assert(node->type == AST_GENERIC_STRUCT || node->type == AST_GENERIC_UNION);
+
+	symbol->is_generic = 1;
+	//	I don't want to add `ast.h` just for this function! So I'll do this outside of this function!
+	//	Look for the function called `register_generic_struct_or_union`!
+	// symbol->is_struct = node->type == AST_GENERIC_STRUCT;
+	// symbol->is_union = node->type == AST_GENERIC_UNION;
+	symbol->node = node;
+
+	return symbol;
+}
+
 
 
 

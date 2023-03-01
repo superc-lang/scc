@@ -110,6 +110,14 @@ struct symbol_t {
 	unsigned is_setter   : 1;
 	unsigned is_getter   : 1;
 	unsigned is_pointer  : 1;
+	unsigned is_generic_name : 1;	// eg. `Vec3`
+	unsigned is_generic_type : 1;	// eg. `T`
+	unsigned is_generic_impl : 1;	// eg. `impl Vec3<T> { ... }`
+	unsigned is_generic_static_impl : 1;	// eg. `impl static Vec3<T> { ... }`
+
+	unsigned is_struct : 1;
+	unsigned is_union : 1;
+	unsigned is_generic : 1;	// eg. `Vec3`
 
 	unsigned is_enum_constant : 1;
 
@@ -118,8 +126,6 @@ struct symbol_t {
 	unsigned is_const : 1;
 	unsigned is_volatile : 1;
 	unsigned is_enum : 1;
-	unsigned is_struct : 1;
-	unsigned is_union : 1;
 	unsigned is_class : 1;
 	unsigned is_interface : 1;
 	unsigned is_namespace : 1;

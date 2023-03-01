@@ -1,5 +1,7 @@
 #include "ast_nodes.h"
 
+struct ast_type_node noop_node = { AST__NO_OP__ };	//	`AST__NO_OP__`, used in the place of `NULL` for certain AST actions where we want to remove a node, like from `AST_LIST`, which is always guaranteed to be non-`NULL`!
+
 //	Single digit node
 struct ast_digit_node digit_node[] = {
 	{ AST_NUMERIC, { '0', '\0' } },
@@ -207,7 +209,7 @@ struct ast_list_node _void_ptr_list_node = {
 	.next = (union ast_node*) & pointer_node,
 	.separator = ""
 };
-struct ast_expression_group_node _void_ptr_node = {
+struct ast_unary_node _void_ptr_node = {
 	AST_EXPRESSION_GROUP,
 	(union ast_node*) & _void_ptr_list_node,
 };
@@ -217,7 +219,7 @@ struct ast_list_node _null_list_node = {
 	.next = (union ast_node*) & digit_node[0],
 	.separator = ""
 };
-struct ast_expression_group_node null_node = {
+struct ast_unary_node null_node = {
 	.type = AST_EXPRESSION_GROUP,
 	.expr = (union ast_node*) & _null_list_node
 };
@@ -304,7 +306,7 @@ expression_statement
 	| expression ';'
 	;
 */
-struct ast_expression_statement_node expression_statement_node = { AST_EXPRESSION_STATEMENT, (void *) 0 };	//	This is for an `expression` statement, but without an expression! Use create_expression_node() for an `expression` statement with an expression! eg. Just `;` by itself!
+struct ast_unary_node expression_statement_node = { AST_EXPRESSION_STATEMENT, (void *) 0 };	//	This is for an `expression` statement, but without an expression! Use create_expression_node() for an `expression` statement with an expression! eg. Just `;` by itself!
 
 
 
@@ -383,6 +385,34 @@ struct ast_type_node error_node = { AST_ERROR };
 //	----------------------------------------------------------------------------------------------------------------
 //	----------------------------------------------------------------------------------------------------------------
 
+struct ast_id_node ucase_node[] = {
+	{ AST_ID, 0, "A" },
+	{ AST_ID, 0, "B" },
+	{ AST_ID, 0, "C" },
+	{ AST_ID, 0, "D" },
+	{ AST_ID, 0, "E" },
+	{ AST_ID, 0, "F" },
+	{ AST_ID, 0, "G" },
+	{ AST_ID, 0, "H" },
+	{ AST_ID, 0, "I" },
+	{ AST_ID, 0, "J" },
+	{ AST_ID, 0, "K" },
+	{ AST_ID, 0, "L" },
+	{ AST_ID, 0, "M" },
+	{ AST_ID, 0, "N" },
+	{ AST_ID, 0, "O" },
+	{ AST_ID, 0, "P" },
+	{ AST_ID, 0, "Q" },
+	{ AST_ID, 0, "R" },
+	{ AST_ID, 0, "S" },
+	{ AST_ID, 0, "T" },
+	{ AST_ID, 0, "U" },
+	{ AST_ID, 0, "V" },
+	{ AST_ID, 0, "W" },
+	{ AST_ID, 0, "X" },
+	{ AST_ID, 0, "Y" },
+	{ AST_ID, 0, "Z" },
+};
 struct ast_id_node lcase_node[] = {
 	{ AST_ID, 0, "a" },
 	{ AST_ID, 0, "b" },

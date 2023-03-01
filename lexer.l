@@ -295,6 +295,7 @@ PP	(#[ \t]*)
 "nullptr"					{ yylval.node = (void *) & null_node; return I_CONSTANT; }
 "NULL"						{ yylval.node = (void *) & null_node; return I_CONSTANT; /* This is here just in-case the traditional NULL macro wasn't expanded! */ }
 
+"A"|"B"|"C"|"D"|"E"|"F"|"G"|"H"|"I"|"J"|"K"|"L"|"M"|"N"|"O"|"P"|"Q"|"R"|"S"|"T"|"U"|"V"|"W"|"X"|"Y"|"Z" { yylval.node = (void *) & ucase_node[yytext[0] - 'A']; return check_type(); }
 "a"|"b"|"c"|"d"|"e"|"f"|"g"|"h"|"i"|"j"|"k"|"l"|"m"|"n"|"o"|"p"|"q"|"r"|"s"|"t"|"u"|"v"|"w"|"x"|"y"|"z" { yylval.node = (void *) & lcase_node[yytext[0] - 'a']; return check_type(); }
 
 "strlen"					{ yylval.node = (void *) & strlen_node; return check_type(); }
@@ -407,6 +408,7 @@ PP	(#[ \t]*)
 #[ \t]*					{ BEGIN(IN_LINE); }
 <IN_LINE>.*				{
 							sscanf(yytext, "%d \"%[^\"]", &yylineno, filename);
+							yylineno--;	// gets automatically incremented by Flex at the end of the line!
 							BEGIN(INITIAL);
 						}
 
@@ -469,6 +471,15 @@ static int check_type()
 	if (symbol_is_typedef(yytext)) {
 		return TYPEDEF_NAME;
 	}
+
+	if (symbol_is_generic_type(yytext)) {	//	eg. T
+		return GENERIC_TYPE;
+	}
+
+	if (symbol_is_generic_name(yytext)) {	//	eg. `Vec3`
+		return GENERIC_NAME;
+	}
+
 
 	/* if (string_array_contains(&enums, yytext))
 		return ENUMERATION_CONSTANT; */

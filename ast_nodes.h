@@ -2,6 +2,8 @@
 
 #include "ast.h"
 
+extern struct ast_type_node no_op_node;	//	`AST__NO_OP__`, used in the place of `NULL` for certain AST actions where we want to remove a node, like from `AST_LIST`, which is always guaranteed to be non-`NULL`!
+
 extern struct ast_digit_node digit_node[];
 extern struct ast_digit_node real_node[];
 
@@ -63,7 +65,7 @@ extern struct ast_bitint_node ___bitint128_node;
 extern struct ast_int_node true_node;
 extern struct ast_int_node false_node;
 
-extern struct ast_expression_group_node null_node;
+extern struct ast_unary_node null_node;
 
 extern struct ast_pointer_node pointer_node;
 
@@ -178,7 +180,7 @@ expression_statement
 	| expression ';'
 	;
 */
-extern struct ast_expression_statement_node expression_statement_node;	//	NOTE: This is for a `;` expression without an expression! Use create_expression_node() for a `;` statement with an expression!
+extern struct ast_unary_node expression_statement_node;	//	NOTE: This is for a `;` expression without an expression! Use create_expression_node() for a `;` statement with an expression!
 
 
 
@@ -206,7 +208,7 @@ extern struct ast_type_node error_node;
 //	----------------------------------------------------------------------------------------------------------------
 //	----------------------------------------------------------------------------------------------------------------
 
-// extern struct ast_lcase_node _lcase_node[];
+extern struct ast_id_node ucase_node[];
 extern struct ast_id_node lcase_node[];
 
 extern struct ast_id_node strlen_node;

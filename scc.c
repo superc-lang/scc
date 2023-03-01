@@ -2,7 +2,7 @@
 #include <stdio.h>		// for: fprintf, stderr, fopen, fclose, fread, fwrite
 #include <stdint.h>		// for: uint8_t
 #include <string.h>		// for: memcpy
-#include <stdbool.h>	// for: true, false
+#include <stdbool.h>	// for: bool, true, false
 #include <assert.h>		// for: assert
 #include <stdarg.h>		// for: va_args
 
@@ -17,6 +17,12 @@
 
 #include "symbol_table.h"
 
+#include "codegen.h"
+#include "print_ast_tree.h"
+#include "indent.h"
+
+#include "scc.h"
+#include "compiler_passes.h"
 
 #define SUPERC_VERSION 1
 
@@ -37,35 +43,11 @@ static char func_name[FUNCTION_NAME_SIZE];
 char command[MAX_COMMAND];
 
 
-void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *parent);
-void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent);
-
-extern void register_typedef(union ast_node *decl_specs, union ast_node *declarator);
+// static inline void indent(FILE *out, int n);
 
 
-static inline void indent(FILE *out, int n);
+union ast_node *ast_root;
 
-
-void convert_classes(union ast_node *node);
-void handle_new_and_delete(union ast_node *node);
-void convert_dot_to_arrow(union ast_node *node);
-void implement_defer(union ast_node *node);
-
-
-
-
-struct compiler_flags {
-	// int optimization_level;
-	// bool verbose;
-	bool debug;
-	bool ast;
-	// const char *compiler;
-	// const char *output_filename;
-	// const char *input_filename;
-	// const char *input_filename_no_ext;
-	// const char *input_filename_ext;
-	// const char *input_filename_path;
-};
 
 struct compiler_flags flags = {
 	// .optimization_level = 0,
@@ -131,6 +113,32 @@ void add_input_file(const char *filename)
 		last->next = new;
 	}
 }
+
+
+
+struct input_filename_list *object_filenames = NULL;
+
+void add_object_file(const char *filename)
+{
+	struct input_filename_list *new = malloc(sizeof(struct input_filename_list));
+	if (new == NULL) {
+		fprintf(stderr, "ERROR: failed to allocate memory for input filename\n");
+		exit(EXIT_FAILURE);
+	}
+	new->filename = filename;
+	new->next = NULL;
+
+	if (object_filenames == NULL) {
+		object_filenames = new;
+	} else {
+		struct input_filename_list *last = object_filenames;
+		while (last->next != NULL) {
+			last = last->next;
+		}
+		last->next = new;
+	}
+}
+
 
 
 struct string_list {
@@ -218,6 +226,13 @@ void compile_files()
 		strncat(command, " ", MAX_COMMAND - strlen(command) - 1);
 		strncat(command, fl->filename, MAX_COMMAND - strlen(command) - 1);
 		fl = fl->next;
+	}
+
+	struct input_filename_list *o = object_filenames;
+	while (o != NULL) {
+		strncat(command, " ", MAX_COMMAND - strlen(command) - 1);
+		strncat(command, o->filename, MAX_COMMAND - strlen(command) - 1);
+		o = o->next;
 	}
 
 	struct string_list *sl = compiler_commands;
@@ -341,8 +356,16 @@ void process_args(int argc, char *argv[])
 		} else {
 			//	Check if the file ends with .c (or .sc?)
 			if (strcmp(argv[i] + strlen(argv[i]) - 2, ".c") != 0) {
-				fprintf(stderr, "ERROR: invalid input file '%s'. Must be a .c file (C source code)\n", argv[i]);
-				exit(EXIT_FAILURE);
+				if (strcmp(argv[i] + strlen(argv[i]) - 2, ".o") != 0) {
+					fprintf(stderr, "ERROR: invalid input file '%s'. Must be a `.c` file (C source code) or `.o` (object) file\n", argv[i]);
+					exit(EXIT_FAILURE);
+				}
+
+				//	We have an object file. Add it to the list of object files to link!
+// printf(".o file: %s\n", argv[i]);
+// exit(1);
+				add_object_file(argv[i]);
+				continue;
 			}
 
 			add_input_file(argv[i]);
@@ -357,19 +380,40 @@ void process_args(int argc, char *argv[])
 	}
 
 	if (input_filenames == NULL) {
-		fprintf(stderr, "ERROR: missing input filename\n");
-		exit(EXIT_FAILURE);
+		if (object_filenames == NULL) {
+			fprintf(stderr, "ERROR: missing input filename\n");
+			exit(EXIT_FAILURE);
+		}
+
+		//	We have only object files to link. No need to transpile!
+
+	}
+}
+
+#	define MAX_FILENAME 512
+static char fn_buf[MAX_FILENAME];
+
+void write_ast_tree_to_file(const char *filename_no_ext, const char *before_or_after, union ast_node *node)
+{
+	if (flags.debug || flags.ast) {
+		snprintf(fn_buf, MAX_FILENAME, "%s.ast.%s.txt", filename_no_ext, before_or_after);
+		FILE *file = fopen(fn_buf, "w+");
+		if (file == NULL) {
+			fprintf(stderr, "ERROR: failed to open output file '%s'\n", fn_buf);
+			exit(EXIT_FAILURE);
+		}
+		print_ast_tree(file, ast_root, 0, NULL);
+		fclose(file);
 	}
 }
 
 
 void transpile_file(const char *filename)
 {
-#	define MAX_FILENAME 512
-//	static char filename_no_ext[MAX_FILENAME];		//	will sort this out later! Currently allocating heap for the name!
+	// static char filename_no_ext[MAX_FILENAME];		//	will sort this out later! Currently allocating heap for the name!
 	static char pp_filename[MAX_FILENAME];
-	static char ast_before_filename[MAX_FILENAME];
-	static char ast_after_filename[MAX_FILENAME];
+	// static char ast_before_filename[MAX_FILENAME];
+	// static char ast_after_filename[MAX_FILENAME];
 	static char output_filename[MAX_FILENAME];
 
 	// Create a preprocessor command to execute the GCC preprocessor
@@ -477,29 +521,19 @@ void transpile_file(const char *filename)
 		free(buffer);
 	}
 
-	//	Write AST tree BEFORE transformation.
-	if (flags.debug || flags.ast) {
-		snprintf(ast_before_filename, MAX_FILENAME, "%s.ast.before.txt", filename_no_ext);
-		FILE *ast_before = fopen(ast_before_filename, "w+");
-		if (ast_before == NULL) {
-			fprintf(stderr, "ERROR: failed to open output file '%s'\n", ast_before_filename);
-			exit(EXIT_FAILURE);
-		}
-		print_ast_tree(ast_before, ast_root, 0, NULL);
-		fclose(ast_before);
-	}
+	write_ast_tree_to_file(filename_no_ext, "before", ast_root);
 
-	//	Note: We at least try to print out the `before` AST tree, even if the parser failed.
+	//	We at least try to print out the `before` AST tree, even if the parser failed.
 	if (parse_result != 0 || error_count > 0) {
 		fprintf(stderr, "ERROR: failed to parse input file '%s'\n", filename);
 		fprintf(stderr, "Parse result: %d, Errors %d\n", parse_result, error_count);
 		exit(EXIT_FAILURE);
 	}
 
-	//	Reset the symbol table, for a `clean` codegen run
+	run_compiler_passes();
 
-	symbol_table_init();
-	symbol_table_push_scope();		//	Push global scope
+	write_ast_tree_to_file(filename_no_ext, "after", ast_root);
+
 
 	snprintf(output_filename, MAX_FILENAME, "%s.i", filename_no_ext);
 	FILE *out = fopen(output_filename, "w+");
@@ -512,18 +546,16 @@ void transpile_file(const char *filename)
 
 	add_transpiled_file(output_filename);	//	Add filename to final list of files to compile with GCC!
 
-	//	Write AST tree AFTER (codegen) transformation.
-
-	if (flags.debug || flags.ast) {
-		snprintf(ast_after_filename, MAX_FILENAME, "%s.ast.after.txt", filename_no_ext);
-		FILE *ast_after = fopen(ast_after_filename, "w+");
-		if (ast_after == NULL) {
-			fprintf(stderr, "ERROR: failed to open output file '%s'\n", ast_after_filename);
-			exit(EXIT_FAILURE);
-		}
-		print_ast_tree(ast_after, ast_root, 0, NULL);
-		fclose(ast_after);
-	}
+	// if (flags.debug || flags.ast) {
+	// 	snprintf(ast_after_filename, MAX_FILENAME, "%s.ast.after.txt", filename_no_ext);
+	// 	FILE *ast_after = fopen(ast_after_filename, "w+");
+	// 	if (ast_after == NULL) {
+	// 		fprintf(stderr, "ERROR: failed to open output file '%s'\n", ast_after_filename);
+	// 		exit(EXIT_FAILURE);
+	// 	}
+	// 	print_ast_tree(ast_after, ast_root, 0, NULL);
+	// 	fclose(ast_after);
+	// }
 
 	// printf("----------------------   Symbol table   ---------------------\n");
 	// symbol_table_print(stdout);
@@ -539,14 +571,14 @@ int main(int argc, char *argv[])
 	//	Process command line arguments
 	process_args(argc, argv);
 
-	//	Loop through all input files
+	//	Loop through and transpile all input files
 	struct input_filename_list *input_filename = input_filenames;
 	while (input_filename != NULL) {
 		transpile_file(input_filename->filename);
 		input_filename = input_filename->next;
 	}
 
-	//	Compile all transpiled files with GCC
+	//	Execute GCC (or other backend compiler) to compile all files
 	// if (flags.compile) {
 		compile_files();
 	// }
@@ -684,1806 +716,6 @@ int __main__(int argc, char *argv[])
 
 
 
-void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *parent)
-{
-	indent(out, depth);
-
-	if (node == NULL) {
-		fputs("NULL\n", out);
-		return;
-	}
-
-	switch (node->type) {
-
-	case AST_PRAGMA:
-		fputs("AST_PRAGMA\n", out);
-
-		indent(out, depth);
-		fputs("|- .pragma\n", out);
-
-		indent(out, depth + 1);
-		fprintf(out, "#pragma %s\n", node->pragma.pragma);
-		break;
-
-	//	-----------------------------------------------------------------------
-	//	`type_specifier`
-
-	/*
-	type_specifier
-		: VOID
-		| CHAR
-		| SHORT
-		| INT
-		| LONG
-		| FLOAT
-		| DOUBLE
-		| SIGNED
-		| UNSIGNED
-		| BOOL
-		| COMPLEX
-		| IMAGINARY
-		| ...
-		;
-	*/
-
-	case AST_VOID:
-		fputs("AST_VOID\n", out);
-		break;
-	case AST_CHAR:
-		fputs("AST_CHAR\n", out);
-		break;
-	case AST_SHORT:
-		fputs("AST_SHORT\n", out);
-		break;
-	case AST_INT:
-		fputs("AST_INT\n", out);
-		break;
-	case AST_LONG:
-		fputs("AST_LONG\n", out);
-		break;
-	case AST_FLOAT:
-		fputs("AST_FLOAT\n", out);
-		break;
-	case AST_DOUBLE:
-		fputs("AST_DOUBLE\n", out);
-		break;
-	case AST_SIGNED:
-		fputs("AST_SIGNED\n", out);
-		break;
-	case AST_UNSIGNED:
-		fputs("AST_UNSIGNED\n", out);
-		break;
-	case AST_BOOL:
-		fputs("AST_BOOL\n", out);
-		break;
-	case AST_COMPLEX:
-		fputs("AST_COMPLEX\n", out);
-		break;
-	case AST_IMAGINARY:
-		fputs("AST_IMAGINARY\n", out);
-		break;
-
-	//	-----------------------------------------------------------------------
-	//	`type_specifier` continued ...
-
-	/*
-	type_specifier
-		: ...
-		| atomic_type_specifier
-		| struct_or_union_specifier
-		| enum_specifier
-		| TYPEDEF_NAME
-		;
-	*/
-
-	case AST_ATOMIC:				//	Not the same as AST_ATOMIC_TYPE!
-		fputs("AST_ATOMIC\n", out);
-		break;
-	case AST_ATOMIC_TYPE:			//	Not the same as AST_ATOMIC!
-		fputs("AST_ATOMIC_TYPE\n", out);
-
-		indent(out, depth);
-		fputs("|- .type_name\n", out);
-		print_ast_tree(out, node->atomic_type.type_name, depth + 1, node);
-		break;
-
-	case AST_STRUCT:
-		fputs("AST_STRUCT\n", out);
-
-		indent(out, depth);
-		fputs("|- .id\n", out);
-		print_ast_tree(out, node->struct_or_union.id, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .decl_list\n", out);
-		print_ast_tree(out, node->struct_or_union.decl_list, depth + 1, node);
-		break;
-
-	case AST_UNION:
-		fputs("AST_UNION\n", out);
-
-		indent(out, depth);
-		fputs("|- .id\n", out);
-		print_ast_tree(out, node->struct_or_union.id, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .decl_list\n", out);
-		print_ast_tree(out, node->struct_or_union.decl_list, depth + 1, node);
-		break;
-
-	//	...
-
-	case AST_TYPEDEF_NAME:					/* same as AST_ID */
-		fputs("AST_TYPEDEF_NAME\n", out);
-
-		indent(out, depth);
-		fputs("|- .id\n", out);
-
-		indent(out, depth + 1);
-		fprintf(out, "`%s`\n", node->id.id);
-		break;
-
-
-	//	-----------------------------------------------------------------------
-	//	`type_specifier` continued ... GCC Extensions
-
-	case AST__BUILTIN_VA_LIST:
-		fputs("AST__BUILTIN_VA_LIST\n", out);
-		break;
-
-
-
-
-
-
-
-
-	//	-----------------------------------------------------------------------
-	//	`storage_class_specifier`
-
-	/*
-	storage_class_specifier
-		: TYPEDEF	//	identifiers must be flagged as TYPEDEF_NAME
-		| EXTERN
-		| STATIC
-		| THREAD_LOCAL
-		| AUTO
-		| REGISTER
-		;
-	*/
-	case AST_TYPEDEF:
-		fputs("AST_TYPEDEF\n", out);
-		break;
-	case AST_EXTERN:
-		fputs("AST_EXTERN\n", out);
-		break;
-	case AST_STATIC:
-		fputs("AST_STATIC\n", out);
-		break;
-	case AST_THREAD_LOCAL:
-		fputs("AST_THREAD_LOCAL\n", out);
-		break;
-	case AST_AUTO:
-		fputs("AST_AUTO\n", out);
-		break;
-	case AST_REGISTER:
-		fputs("AST_REGISTER\n", out);
-		break;
-
-
-	/* GCC "__extension__" */
-	case AST__EXTENSION__:
-		fputs("AST__EXTENSION__\n", out);
-		break;
-
-
-
-
-
-	//	-----------------------------------------------------------------------
-
-
-	case AST_LIST:
-		fputs("AST_LIST\n", out);
-
-		// for (int i = 0; i < node->list.size; i++) {
-		// 	print_ast_tree(out, node->list.nodes[i], depth + 1);
-		// }
-
-		indent(out, depth);
-		fprintf(out, "|- .node\n");
-		print_ast_tree(out, node->list.node, depth + 1, node);
-
-		indent(out, depth);
-		fprintf(out, "|- .next\n");
-		print_ast_tree(out, node->list.next, depth + 1, node);
-		break;
-
-	case AST_DECLARATION:
-		fputs("AST_DECLARATION\n", out);
-		// print_ast_tree(out, node->declaration.declarator, depth + 1);
-
-		indent(out, depth);
-		fprintf(out, "|- .decl_specs\n");
-		print_ast_tree(out, node->declaration.decl_specs, depth + 1, node);
-
-		indent(out, depth);
-		fprintf(out, "|- .init_declarator_list\n");
-		print_ast_tree(out, node->declaration.init_declarator_list, depth + 1, node);
-		break;
-
-	// case AST_DECLARATOR:
-	// 	fprintf(out, "AST_DECLARATOR\n");
-	// 	print_ast_tree(out, node->declarator.direct_declarator, depth + 1);
-	// 	break;
-
-	case AST_POINTER_DECLARATOR:
-		fputs("AST_POINTER_DECLARATOR\n", out);
-
-	_print_ast_pointer_declarator:
-		indent(out, depth);
-		fprintf(out, "|- .pointer\n");
-		print_ast_tree(out, node->pointer_declarator.pointer, depth + 1, node);
-
-		indent(out, depth);
-		fprintf(out, "|- .direct_declarator\n");
-		print_ast_tree(out, node->pointer_declarator.direct_declarator, depth + 1, node);
-		break;
-
-	case AST_POINTER:
-		fputs("AST_POINTER\n", out);
-
-	// _print_ast_pointer:
-		indent(out, depth);
-		fprintf(out, "|- .type_qualifier_list\n");
-		print_ast_tree(out, node->pointer.type_qualifier_list, depth + 1, node);	//	NULL & NULL == basic pointer! eg. int *i;
-
-		indent(out, depth);
-		fprintf(out, "|- .pointer\n");
-		print_ast_tree(out, node->pointer.pointer, depth + 1, node);
-		break;
-
-
-
-
-
-	//	-----------------------------------------------------------------------
-	//	`type_qualifier`
-	//	-----------------------------------------------------------------------
-
-	/*
-	type_qualifier
-		: CONST
-		| RESTRICT
-		| VOLATILE
-		| ATOMIC
-		;
-	*/
-	case AST_CONST:
-		fputs("AST_CONST\n", out);
-		break;
-	case AST_RESTRICT:
-		fputs("AST_RESTRICT\n", out);
-		break;
-	case AST_VOLATILE:
-		fputs("AST_VOLATILE\n", out);
-		break;
-	// case AST_ATOMIC:
-	// 	fprintf(out, "atomic");
-	// 	break;
-
-	/* GCC */
-	case AST__RESTRICT:
-		fputs("AST__RESTRICT\n", out);
-		break;
-
-
-	//	-----------------------------------------------------------------------
-	//	`function_specifier`
-	//	-----------------------------------------------------------------------
-
-	/*
-	function_specifier
-		: INLINE
-		| NORETURN
-		;
-	*/
-
-	case AST_INLINE:
-		fputs("AST_INLINE\n", out);
-		break;
-	case AST_NORETURN:
-		fputs("AST_NORETURN\n", out);
-		break;
-
-	//	-----------------------------------------------------------------------
-	//	GCC __inline && __inline__ extensions
-	case AST__INLINE:
-		fputs("AST__INLINE\n", out);
-		break;
-	case AST__INLINE__:
-		fputs("AST__INLINE__\n", out);
-		break;
-
-
-	//	----------------------------------------------
-	//	`assignment_expression`
-	//	----------------------------------------------
-
-	case AST_ASSIGN:
-		fputs("AST_ASSIGN\n", out);
-
-	BINARY_NODE:
-		indent(out, depth);
-		fprintf(out, "|- .left\n");
-		print_ast_tree(out, node->binary.left, depth + 1, node);
-
-		indent(out, depth);
-		fprintf(out, "|- .right\n");
-		print_ast_tree(out, node->binary.right, depth + 1, node);
-		break;
-
-	case AST_ADD_ASSIGN:
-		fputs("AST_ADD_ASSIGN\n", out);
-		goto BINARY_NODE;
-	case AST_SUB_ASSIGN:
-		fputs("AST_SUB_ASSIGN\n", out);
-		goto BINARY_NODE;
-	case AST_MUL_ASSIGN:
-		fputs("AST_MUL_ASSIGN\n", out);
-		goto BINARY_NODE;
-	case AST_DIV_ASSIGN:
-		fputs("AST_DIV_ASSIGN\n", out);
-		goto BINARY_NODE;
-	case AST_MOD_ASSIGN:
-		fputs("AST_MOD_ASSIGN\n", out);
-		goto BINARY_NODE;
-	case AST_AND_ASSIGN:
-		fputs("AST_AND_ASSIGN\n", out);
-		goto BINARY_NODE;
-	case AST_XOR_ASSIGN:
-		fputs("AST_XOR_ASSIGN\n", out);
-		goto BINARY_NODE;
-	case AST_OR_ASSIGN:
-		fputs("AST_OR_ASSIGN\n", out);
-		goto BINARY_NODE;
-	case AST_SHL_ASSIGN:
-		fputs("AST_SHL_ASSIGN\n", out);
-		goto BINARY_NODE;
-	case AST_SHR_ASSIGN:
-		fputs("AST_SHR_ASSIGN\n", out);
-		goto BINARY_NODE;
-
-	//	----------------------------------------------
-	//	END `assignment_expression`
-	//	----------------------------------------------
-
-
-	//	----------------------------------------------
-	//	`conditional_expression`
-	//	----------------------------------------------
-
-	case AST_TERNARY:
-		fprintf(out, "AST_TERNARY\n");
-
-		indent(out, depth);
-		fprintf(out, "|- cond:\n");
-		print_ast_tree(out, node->ternary.cond, depth + 1, node);
-
-		indent(out, depth);
-		fprintf(out, "|- true_expr:\n");
-		print_ast_tree(out, node->ternary.true_expr, depth + 1, node);
-
-		indent(out, depth);
-		fprintf(out, "|- false_expr:\n");
-		print_ast_tree(out, node->ternary.false_expr, depth + 1, node);
-		break;
-
-	//	-----------------------------------------------------------------------
-	//	`logical_or_expression`
-	//	-----------------------------------------------------------------------
-
-	case AST_OR:
-		fprintf(out, "AST_OR\n");
-		goto BINARY_NODE;
-
-	//	-----------------------------------------------------------------------
-	//	`logical_and_expression`
-	//	-----------------------------------------------------------------------
-
-	case AST_AND:
-		fprintf(out, "AST_AND\n");
-		goto BINARY_NODE;
-
-	//	-----------------------------------------------------------------------
-	//	`inclusive_or_expression`
-	//	-----------------------------------------------------------------------
-
-	case AST_BIT_OR:
-		fprintf(out, "AST_BIT_OR\n");
-		goto BINARY_NODE;
-
-	//	-----------------------------------------------------------------------
-	//	`exclusive_or_expression`
-	//	-----------------------------------------------------------------------
-
-	case AST_BIT_XOR:
-		fprintf(out, "AST_BIT_XOR\n");
-		goto BINARY_NODE;
-
-	//	-----------------------------------------------------------------------
-	//	`and_expression`
-	//	-----------------------------------------------------------------------
-
-	case AST_BIT_AND:
-		fprintf(out, "AST_BIT_AND\n");
-		goto BINARY_NODE;
-
-	//	----------------------------------------------
-	//	`equality_expression`
-	//	----------------------------------------------
-
-	case AST_EQ:
-		fprintf(out, "AST_EQ\n");
-		goto BINARY_NODE;
-
-	case AST_NE:
-		fprintf(out, "AST_NE\n");
-		goto BINARY_NODE;
-
-	//	----------------------------------------------
-	//	END `equality_expression`
-	//	----------------------------------------------
-
-
-	case AST_GT:
-		fprintf(out, "AST_GT\n");
-		goto BINARY_NODE;
-	case AST_GE:
-		fprintf(out, "AST_GE\n");
-		goto BINARY_NODE;
-	case AST_LT:
-		fprintf(out, "AST_LT\n");
-		goto BINARY_NODE;
-	case AST_LE:
-		fprintf(out, "AST_LE\n");
-		goto BINARY_NODE;
-
-
-	case AST_ADD:
-		fprintf(out, "AST_ADD\n");
-		goto BINARY_NODE;
-	case AST_SUB:
-		fprintf(out, "AST_SUB\n");
-		goto BINARY_NODE;
-	case AST_MUL:
-		fprintf(out, "AST_MUL\n");
-		goto BINARY_NODE;
-	case AST_DIV:
-		fprintf(out, "AST_DIV\n");
-		goto BINARY_NODE;
-	case AST_MOD:
-		fprintf(out, "AST_MOD\n");
-		goto BINARY_NODE;
-
-
-	case AST_SHL:
-		fprintf(out, "AST_SHL\n");
-		goto BINARY_NODE;
-	case AST_SHR:
-		fprintf(out, "AST_SHR\n");
-		goto BINARY_NODE;
-
-
-
-	// case AST_UNARY:
-	// 	fprintf(out, "AST_UNARY\n");
-	// 	print_ast_tree(out, node->unary.expr, depth + 1);
-	// 	break;
-
-
-
-	//	-----------------------------------------------------------------------
-	//	`unary_expression`
-	//	-----------------------------------------------------------------------
-
-	/*
-	unary_expression
-		: postfix_expression
-		| INC unary_expression
-		| DEC unary_expression
-		| unary_operator cast_expression
-		| SIZEOF unary_expression
-		| SIZEOF '(' type_name ')'
-		| ALIGNOF '(' type_name ')'
-		| extension_specifier cast_expression %prec UNARY
-	*/
-
-	case AST_PRE_INC:
-		fputs("AST_PRE_INC\n", out);
-
-		indent(out, depth);
-		fputs("|- ++.expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-
-	case AST_PRE_DEC:
-		fputs("AST_PRE_DEC\n", out);
-
-		indent(out, depth);
-		fputs("|- --.expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-
-	case AST_SIZEOF_EXPR:
-		fputs("AST_SIZEOF_EXPR\n", out);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-
-	case AST_SIZEOF_TYPE:
-		fputs("AST_SIZEOF_TYPE\n", out);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-
-	case AST_ALIGNOF:
-		fputs("AST_ALIGNOF\n", out);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-
-
-	//	----------------------------------------------
-	//	`unary_operator`
-	//	----------------------------------------------
-
-	/*
-	unary_operator
-		: '&'				//	AST_ADDRESS_OF
-		| '*'				//	AST_DEREFERENCE
-		| '+'				//	AST_POSITIVE
-		| '-'				//	AST_NEGATIVE
-		| '~'				//	AST_BITWISE_NOT
-		| '!'				//	AST_LOGICAL_NOT
-		;
-	*/
-	case AST_ADDRESS_OF:
-		fprintf(out, "AST_ADDRESS_OF: (&)\n");
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-	case AST_DEREFERENCE:
-		fprintf(out, "AST_DEREFERENCE: (*)\n");
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-	case AST_POSITIVE:
-		fprintf(out, "AST_POSITIVE: (+)\n");
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-	case AST_NEGATIVE:
-		fprintf(out, "AST_NEGATIVE: (-)\n");
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-	case AST_BITWISE_NOT:
-		fprintf(out, "AST_BITWISE_NOT: (~)\n");
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-	case AST_LOGICAL_NOT:
-		fprintf(out, "AST_LOGICAL_NOT: (!)\n");
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-
-
-
-
-	//	-----------------------------------------------------------------------
-	//	`postfix_expression`
-	//	-----------------------------------------------------------------------
-
-	/*
-	postfix_expression
-		: primary_expression
-		| postfix_expression '[' expression ']'					//	AST_ARRAY_SUBSCRIPT
-		| postfix_expression '(' ')'							//	AST_FUNCTION_CALL
-		| postfix_expression '(' argument_expression_list ')'	//	AST_FUNCTION_CALL
-		| postfix_expression '.' IDENTIFIER						//	AST_MEMBER_ACCESS
-		| postfix_expression ARROW IDENTIFIER					//	AST_MEMBER_ACCESS_POINTER
-		| postfix_expression INC								//	AST_POST_INC
-		| postfix_expression DEC								//	AST_POST_DEC
-		| '(' type_name ')' '{' initializer_list '}'			//	AST_COMPOUND_LITERAL
-		| '(' type_name ')' '{' initializer_list ',' '}'		//	AST_COMPOUND_LITERAL
-		;
-	*/
-
-	case AST_ARRAY_SUBSCRIPT:
-		fputs("AST_ARRAY_SUBSCRIPT\n", out);
-
-		indent(out, depth);
-		fputs("|- .array\n", out);
-		print_ast_tree(out, node->array_subscript.array, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .index\n", out);
-		print_ast_tree(out, node->array_subscript.index, depth + 1, node);
-		break;
-
-	case AST_FUNCTION_CALL:
-		fputs("AST_FUNCTION_CALL\n", out);
-
-	_print_ast_function_call:					//	Used by `AST_DELETE_OPERATOR`
-		indent(out, depth);
-		fputs("|- .function\n", out);
-		print_ast_tree(out, node->function_call.function, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .args\n", out);
-		print_ast_tree(out, node->function_call.args, depth + 1, node);
-		break;
-
-	case AST_MEMBER_ACCESS:
-		fputs("AST_MEMBER_ACCESS\n", out);
-
-		indent(out, depth);
-		fputs("|- .object\n", out);
-		print_ast_tree(out, node->member_access.object, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .member\n", out);
-		print_ast_tree(out, node->member_access.member, depth + 1, node);
-		break;
-
-	case AST_MEMBER_ACCESS_POINTER:
-		fputs("AST_MEMBER_ACCESS_POINTER\n", out);
-
-		indent(out, depth);
-		fputs("|- .object\n", out);
-		print_ast_tree(out, node->member_access.object, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .member\n", out);
-		print_ast_tree(out, node->member_access.member, depth + 1, node);
-		break;
-
-	case AST_POST_INC:
-		fputs("AST_POST_INC\n", out);
-
-		indent(out, depth);
-		fputs("|- .expr++\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-
-	case AST_POST_DEC:
-		fputs("AST_POST_DEC\n", out);
-
-		indent(out, depth);
-		fputs("|- .expr--\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
-		break;
-
-	case AST_COMPOUND_LITERAL:
-		fputs("AST_COMPOUND_LITERAL\n", out);
-
-		indent(out, depth);
-		fputs("|- .type_name\n", out);
-		print_ast_tree(out, node->compound_literal.type_name, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .init_list\n", out);
-		print_ast_tree(out, node->compound_literal.init_list, depth + 1, node);
-		break;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	//	-----------------------------------------------------------------------
-	//	-----------------------------------------------------------------------
-
-
-
-
-
-
-	case AST_INIT_DECLARATOR:
-		fputs("AST_INIT_DECLARATOR\n", out);
-
-		indent(out, depth);
-		fputs("|- .declarator\n", out);
-		print_ast_tree(out, node->init_declarator.declarator, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .initializer\n", out);
-		print_ast_tree(out, node->init_declarator.initializer, depth + 1, node);
-		break;
-
-
-	case AST_BLOCK:
-		fputs("AST_BLOCK\n", out);
-
-		indent(out, depth);
-		fputs("|- .stmts\n", out);
-		print_ast_tree(out, node->block.stmts, depth + 1, node);
-		break;
-
-
-
-
-	case AST_EXPRESSION_GROUP:
-		fputs("AST_EXPRESSION_GROUP\n", out);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->expression_group.expr, depth + 1, node);
-		break;
-
-
-
-
-	//	-----------------------------------------------------------------------
-	//	`struct_declaration_list`
-	//	-----------------------------------------------------------------------
-
-	/*
-	struct_declaration_list
-		: struct_declaration
-		| struct_declaration_list struct_declaration
-		;
-
-	struct_declaration
-		: specifier_qualifier_list ';'	//	for anonymous struct/union
-		| specifier_qualifier_list struct_declarator_list ';'
-		| static_assert_declaration
-		;
-
-	specifier_qualifier_list
-		: type_specifier specifier_qualifier_list
-		| type_specifier
-		| type_qualifier specifier_qualifier_list
-		| type_qualifier
-		;
-
-	struct_declarator_list
-		: struct_declarator
-		| struct_declarator_list ',' struct_declarator
-		;
-
-	struct_declarator
-		: ':' constant_expression
-		| declarator ':' constant_expression
-		| declarator
-		;
-	*/
-	case AST_STRUCT_OR_UNION_DECLARATION:
-		fprintf(out, "AST_STRUCT_OR_UNION_DECLARATION\n");
-
-		indent(out, depth);
-		fprintf(out, "|- .spec_qual_list\n");
-		print_ast_tree(out, node->struct_or_union_declaration.spec_qual_list, depth + 1, node);
-
-		indent(out, depth);
-		fprintf(out, "|- .decl_list\n");
-		print_ast_tree(out, node->struct_or_union_declaration.decl_list, depth + 1, node);
-		break;
-
-	case AST_STRUCT_OR_UNION_DECLARATOR:
-		fprintf(out, "AST_STRUCT_OR_UNION_DECLARATOR\n");
-
-		indent(out, depth);
-		fprintf(out, "|- .declarator\n");
-		print_ast_tree(out, node->struct_or_union_declarator.declarator, depth + 1, node);
-
-		indent(out, depth);
-		fprintf(out, "|- .expr\n");
-		print_ast_tree(out, node->struct_or_union_declarator.expr, depth + 1, node);
-		break;
-
-
-
-	//	-----------------------------------------------------------------------
-
-
-
-
-	case AST_ABSTRACT_TYPE_NAME:
-		fputs("AST_ABSTRACT_TYPE_NAME\n", out);
-
-		indent(out, depth);
-		fputs("|- .specifier_qualifier_list\n", out);
-		print_ast_tree(out, node->abstract_type_name.specifier_qualifier_list, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .abstract_declarator\n", out);
-		print_ast_tree(out, node->abstract_type_name.abstract_declarator, depth + 1, node);
-		break;
-
-	case AST_ABSTRACT_DECLARATOR:
-		fputs("AST_ABSTRACT_DECLARATOR\n", out);
-
-		indent(out, depth);
-		fputs("|- .pointer\n", out);
-		print_ast_tree(out, node->abstract_declarator.pointer, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .direct_abstract_declarator\n", out);
-		print_ast_tree(out, node->abstract_declarator.direct_abstract_declarator, depth + 1, node);
-		break;
-
-
-	case AST_FUNCTION_DEFINITION:
-		fputs("AST_FUNCTION_DEFINITION\n", out);
-
-	_print_ast_function_definition:
-		indent(out, depth);
-		fputs("|- .decl_specs\n", out);
-		print_ast_tree(out, node->function_definition.decl_specs, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .declarator\n", out);
-		print_ast_tree(out, node->function_definition.declarator, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .decl_list\n", out);
-		print_ast_tree(out, node->function_definition.decl_list, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .block\n", out);
-		print_ast_tree(out, node->function_definition.block, depth + 1, node);
-		break;
-
-	case AST_PARAMETER_DECLARATION:
-		fputs("AST_PARAMETER_DECLARATION\n", out);
-
-		indent(out, depth);
-		fprintf(out, "|- .decl_specs\n");
-		print_ast_tree(out, node->parameter_declaration.decl_specs, depth + 1, node);
-
-		indent(out, depth);
-		fprintf(out, "|- .declarator\n");
-		print_ast_tree(out, node->parameter_declaration.declarator, depth + 1, node);
-		break;
-
-
-	case AST_RETURN:
-		fputs("AST_RETURN\n", out);
-
-		indent(out, depth);
-		fprintf(out, "|- .expr\n");
-		print_ast_tree(out, node->return_stmt.expr, depth + 1, node);
-		break;
-
-
-	//	-----------------------------------------------------------------------
-	//	`direct_declarator`
-
-	case AST_GROUPED_DECLARATOR:
-		fputs("AST_GROUPED_DECLARATOR\n", out);
-
-		indent(out, depth);
-		fputs("|- .declarator\n", out);
-		print_ast_tree(out, node->grouped_declarator.declarator, depth + 1, node);
-		break;
-
-	case AST_UNSPECIFIED_ARRAY:
-		fputs("AST_UNSPECIFIED_ARRAY\n", out);
-
-		indent(out, depth);
-		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->unspecified_array.direct_declarator, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .type_qualifier_list\n", out);
-		print_ast_tree(out, node->unspecified_array.type_qualifier_list, depth + 1, node);
-		break;
-
-	case AST_DYNAMIC_ARRAY:
-		fputs("AST_DYNAMIC_ARRAY\n", out);
-
-		indent(out, depth);
-		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->dynamic_array.direct_declarator, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .type_qualifier_list\n", out);
-		print_ast_tree(out, node->dynamic_array.type_qualifier_list, depth + 1, node);
-		break;
-
-	case AST_STATIC_ARRAY:
-		fputs("AST_STATIC_ARRAY\n", out);
-
-		indent(out, depth);
-		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->static_array.direct_declarator, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .type_qualifier_list\n", out);
-		print_ast_tree(out, node->static_array.type_qualifier_list, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->static_array.expr, depth + 1, node);
-		break;
-
-	case AST_ARRAY:
-		fputs("AST_ARRAY\n", out);
-
-		indent(out, depth);
-		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->array.direct_declarator, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .type_qualifier_list\n", out);
-		print_ast_tree(out, node->array.type_qualifier_list, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->array.expr, depth + 1, node);
-		break;
-
-	case AST_FUNCTION_DECLARATOR:
-		fputs("AST_FUNCTION_DECLARATOR\n", out);
-
-		indent(out, depth);
-		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->function_declarator.direct_declarator, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .params\n", out);
-		print_ast_tree(out, node->function_declarator.params, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .identifier_list\n", out);
-		print_ast_tree(out, node->function_declarator.identifier_list, depth + 1, node);
-		break;
-
-	//	end `direct_declarator`
-	//	-----------------------------------------------------------------------
-
-
-
-	//	----------------------------------------------
-	//	`selection_statement`
-	//	----------------------------------------------
-	/*
-	selection_statement
-		: IF '(' expression ')' statement ELSE statement
-		| IF '(' expression ')' statement
-		| SWITCH '(' expression ')' statement
-		;
-	*/
-	case AST_IF:
-		fprintf(out, "AST_IF\n");
-
-		indent(out, depth);
-		fputs("|- .cond\n", out);
-		print_ast_tree(out, node->if_stmt.cond, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .if_true\n", out);
-		print_ast_tree(out, node->if_stmt.if_true, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .if_false\n", out);
-		print_ast_tree(out, node->if_stmt.if_false, depth + 1, node);
-		break;
-
-	case AST_SWITCH:
-		fprintf(out, "AST_SWITCH\n");
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->switch_stmt.expr, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .stmt\n", out);
-		print_ast_tree(out, node->switch_stmt.stmt, depth + 1, node);
-		break;
-
-
-
-	//	-----------------------------------------------------------------------
-	//	`iteration_statement`
-	//	-----------------------------------------------------------------------
-
-	/*
-	iteration_statement
-		: WHILE '(' expression ')' statement
-		| DO statement WHILE '(' expression ')' ';'
-		| FOR '(' expression_statement expression_statement ')' statement
-		| FOR '(' expression_statement expression_statement expression ')' statement
-		| FOR '(' declaration expression_statement ')' statement
-		| FOR '(' declaration expression_statement expression ')' statement
-		;
-	*/
-
-	case AST_WHILE:
-		fputs("AST_WHILE\n", out);
-
-		indent(out, depth);
-		fputs("|- .cond\n", out);
-		print_ast_tree(out, node->while_stmt.cond, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .body\n", out);
-		print_ast_tree(out, node->while_stmt.body, depth + 1, node);
-		break;
-
-	case AST_DO_WHILE:
-		fputs("AST_DO_WHILE\n", out);
-
-		indent(out, depth);
-		fputs("|- .body\n", out);
-		print_ast_tree(out, node->do_while_stmt.body, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .cond\n", out);
-		print_ast_tree(out, node->do_while_stmt.cond, depth + 1, node);
-		break;
-
-	case AST_FOR:
-		fputs("AST_FOR\n", out);
-
-		indent(out, depth);
-		fputs("|- .init\n", out);
-		print_ast_tree(out, node->for_stmt.init, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .cond\n", out);
-		print_ast_tree(out, node->for_stmt.cond, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .incr\n", out);
-		print_ast_tree(out, node->for_stmt.incr, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .body\n", out);
-		print_ast_tree(out, node->for_stmt.body, depth + 1, node);
-		break;
-
-	//	-----------------------------------------------------------------------
-	//	`expression_statement`
-	//	-----------------------------------------------------------------------
-
-	case AST_EXPRESSION_STATEMENT:
-		fputs("AST_EXPRESSION_STATEMENT\n", out);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->expr_stmt.expr, depth + 1, node);
-		break;
-
-
-
-	//	-----------------------------------------------------------------------
-	//	`initializer`
-	//	`initializer_list`
-	//	`designation`
-	//	`designator_list`
-	//	`designator`
-	//	-----------------------------------------------------------------------
-
-	/*
-	initializer
-		: '{' initializer_list '}'							// create_initializer_node($2);
-		| '{' initializer_list ',' '}'						// create_initializer_node($2);
-		| assignment_expression
-		;
-	*/
-	case AST_INITIALIZER:
-		fputs("AST_INITIALIZER\n", out);
-
-		indent(out, depth);
-		fputs("|- .list\n", out);
-		print_ast_tree(out, node->initializer.list, depth + 1, node);
-		break;
-	/*
-	initializer_list
-		: designation initializer							// create_designation_initializer_node($1, $2);
-		| initializer				
-		| initializer_list ',' designation initializer		// create_list_node($1, create_designation_initializer_node($3, $4), ", ");
-		| initializer_list ',' initializer					// create_list_node($1, $3, ", ");
-		;
-	*/
-
-	/*
-	designation
-		: designator_list '='
-		;
-	*/
-	case AST_DESIGNATION_INITIALIZER:
-		fputs("AST_DESIGNATION_INITIALIZER\n", out);
-
-		indent(out, depth);
-		fputs("|- .designation\n", out);
-		print_ast_tree(out, node->designation_initializer.designation, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .initializer\n", out);
-		print_ast_tree(out, node->designation_initializer.initializer, depth + 1, node);
-		break;
-	/*
-	designator_list
-		: designator
-		| designator_list designator		//	AST_LIST
-		;
-	*/
-	/*
-	designator
-		: '[' constant_expression ']'		//	create_designator_node($2, NULL);
-		| '.' IDENTIFIER					//	create_designator_node(NULL, $2);
-		;
-	*/
-	case AST_DESIGNATOR:
-		fputs("AST_DESIGNATOR\n", out);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->designator.expr, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .id\n", out);
-		print_ast_tree(out, node->designator.id, depth + 1, node);	//	most common case!
-		break;
-
-
-	//	-----------------------------------------------------------------------
-	//	`_Static_assert` (C11 keyword) || `static_assert` (C23 keyword, C11 macro)
-	//	-----------------------------------------------------------------------
-
-	/*
-	static_assert_declaration
-		: _STATIC_ASSERT '(' constant_expression ',' STRING_LITERAL ')' ';'
-		| _STATIC_ASSERT '(' constant_expression ')' ';'
-		| STATIC_ASSERT '(' constant_expression ',' STRING_LITERAL ')' ';'
-		| STATIC_ASSERT '(' constant_expression ')' ';'
-		;
-	*/
-	case AST__STATIC_ASSERT:
-		fputs("AST__STATIC_ASSERT\n", out);
-		goto _print_ast_static_assert;
-
-	case AST_STATIC_ASSERT:
-		fputs("AST_STATIC_ASSERT\n", out);
-
-	_print_ast_static_assert:
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->static_assert_stmt.expr, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .str\n", out);
-		print_ast_tree(out, node->static_assert_stmt.str, depth + 1, node);
-		break;
-
-
-
-	case AST__ATTRIBUTE__:
-		fputs("AST__ATTRIBUTE__\n", out);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		indent(out, depth + 1);
-		fprintf(out, "`%s`\n", node->attribute.src_code);
-		break;
-
-
-
-
-	//	-----------------------------------------------------------------------
-	//	Super C Extensions
-	//	-----------------------------------------------------------------------
-
-	case AST_IMPL:
-		fputs("AST_IMPL\n", out);
-
-	_print_impl_node:
-		indent(out, depth);
-		fputs("|- .id\n", out);
-		print_ast_tree(out, node->impl.id, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .body\n", out);
-		print_ast_tree(out, node->impl.body, depth + 1, node);
-		break;
-
-	case AST_STATIC_IMPL:
-		fputs("AST_STATIC_IMPL\n", out);
-		goto _print_impl_node;
-
-	case AST_THIS:
-		fputs("AST_THIS\n", out);
-		break;
-
-	case AST_SELF:
-		fputs("AST_SELF\n", out);
-		break;
-
-	case AST_NS_OP:
-		fputs("AST_NS_OP\n", out);
-
-		indent(out, depth);
-		fputs("|- .left\n", out);
-		print_ast_tree(out, node->binary.left, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .right\n", out);
-		print_ast_tree(out, node->binary.right, depth + 1, node);
-		break;
-
-/*
-	case AST_NEW:
-		fputs("AST_NEW\n", out);
-
-		indent(out, depth);
-		fputs("|- .id\n", out);
-		print_ast_tree(out, node->new.id, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .parameter_list\n", out);
-		print_ast_tree(out, node->new.parameter_list, depth + 1, node);
-		break;
-
-	case AST_DELETE:
-		fputs("AST_DELETE\n", out);
-
-		indent(out, depth);
-		fputs("|- .id\n", out);
-		print_ast_tree(out, node->delete.id, depth + 1, node);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->delete.expr, depth + 1, node);
-		break;
-*/
-
-	case AST_IMPL_NEW_FUNCTION:
-		fputs("AST_IMPL_NEW_FUNCTION\n", out);
-		goto _print_ast_function_definition;	//	AST_FUNCTION_DEFINITION
-
-	case AST_IMPL_NEW_DECLARATOR:
-		fputs("AST_IMPL_NEW_DECLARATOR\n", out);
-		goto _print_ast_pointer_declarator;		//	AST_POINTER_DECLARATOR / `pointer_declarator`
-
-	case AST_IMPL_DELETE_FUNCTION:
-		fputs("AST_IMPL_DELETE_FUNCTION\n", out);
-		goto _print_ast_function_definition;	//	AST_FUNCTION_DEFINITION
-
-
-
-	case AST_DELETE_OPERATOR:
-		fputs("AST_DELETE_OPERATOR\n", out);
-		goto _print_ast_function_call;			//	AST_FUNCTION_CALL
-
-		// indent(out, depth);
-		// fputs("|- .id\n", out);
-		// print_ast_tree(out, node->delete.id, depth + 1, node);
-
-		// indent(out, depth);
-		// fputs("|- .expr\n", out);
-		// print_ast_tree(out, node->delete.expr, depth + 1, node);
-		// break;
-
-
-	case AST_IMPL_FUNCTION_DECLARATION:
-		fputs("AST_IMPL_FUNCTION_DECLARATION\n", out);
-		goto _print_ast_function_definition;	//	AST_FUNCTION_DEFINITION
-
-	case AST_BLANK_ID:
-		fputs("AST_BLANK_ID\n", out);
-		break;
-
-	case AST_GETTER:
-		fputs("AST_GETTER\n", out);
-		goto _print_ast_function_definition;	//	AST_FUNCTION_DEFINITION
-
-	case AST_SETTER:
-		fputs("AST_SETTER\n", out);
-		goto _print_ast_function_definition;	//	AST_FUNCTION_DEFINITION
-
-
-
-	//	-----------------------------------------------------------------------
-	//	AST_ERROR node
-
-	case AST_ERROR:
-		fputs("AST_ERROR\n", out);
-		break;
-
-	//	-----------------------------------------------------------------------
-
-	case AST_NUMERIC:
-		fprintf(out, "AST_NUMERIC: `%s`\n", node->numeric.num_str);
-		break;
-
-	case AST_ID:
-		fputs("AST_ID\n", out);
-		indent(out, depth + 1);
-		fprintf(out, "`%s`\n", node->id.id);
-		break;
-
-	case AST_STRING:
-		fprintf(out, "AST_STRING: %s\n", node->str.str);
-		break;
-
-	case AST_DUMMY:
-		fputs("AST_DUMMY node\n", out);
-		break;
-
-	default:
-		fprintf(out, "Unknown node type: %d\n", node->type);
-		break;
-	}
-}
-
-
-
-
-
-
-
-
-
-
-
-// This is the function that searches a function body for use of either `this` or `self`.
-// If we find an AST_THIS or AST_SELF, then we use that as the name of the first parameter.
-// This allows us to support using BOTH `this` and `self` in method bodies, (but obviously only one at a time!)
-union ast_node *find_this_or_self_id(union ast_node *node)
-{
-	if (node == NULL) return NULL;
-
-	union ast_node *tmp;
-
-	switch (node->type) {
-	case AST_THIS: return node;
-	case AST_SELF: return node;
-
-	// case AST_ID:
-	// 	if (strcmp(block->id.id, "this") == 0) {
-	// 		return block;
-	// 	}
-	// 	if (strcmp(block->id.id, "self") == 0) {
-	// 		return block;
-	// 	}
-	// 	break;
-
-	// case AST_ID:
-	// 	if (strcmp(block->id.id, "this") == 0 || strcmp(block->id.id, "self") == 0) {
-	// 		return block;
-	// 	}
-	// 	break;
-
-	case AST_BLOCK:
-		return find_this_or_self_id(node->block.stmts);
-
-	case AST_LIST:
-		tmp = find_this_or_self_id(node->list.node);
-		return tmp ? tmp : find_this_or_self_id(node->list.next);
-
-	case AST_DECLARATION:
-		//	There are probably 3 possibilities here:
-		//	Self *self;
-		//	Self *self = xyz;		//	AST_INIT_DECLARATOR { .init_declarator_list = AST_POINTER_DECLARATOR (.direct_declarator == AST_SELF) }
-		//	Foo *tmp;
-		//	Self *tmp = self;		//	AST_INIT_DECLARATOR => AST_POINTER_DECLARATOR + AST_SELF
-		//	Foo *tmp = self.foo;	//	AST_INIT_DECLARATOR => AST_POINTER_DECLARATOR + AST_SELF
-		// tmp = node->declaration.init_declarator_list;
-		// if (tmp) {
-		// 	if (tmp->type == AST_SELF || tmp->type == AST_THIS) {
-		// 		return (void *) & static_node;
-		// 	}
-		// }
-		tmp = find_this_or_self_id(node->declaration.init_declarator_list);
-		//	NOTE: .init_declarator_list CAN be NULL (just declare `int;` without a name)!
-		//	BUT if `tmp` is NOT NULL, then .init_declarator_list is also NOT NULL!
-//printf("AST_DECLARATION: tmp->type: %d %s\n", tmp ? tmp->type : 0, get_node_name(tmp ? tmp->type : 0));
-		if (tmp && node->declaration.init_declarator_list->type != AST_INIT_DECLARATOR) {
-			break;
-		}
-		return tmp;
-		// If `tmp` is not NULL, I need to cancel the search, because there was a `this` or `self` in the declaration!
-		// That means it's probably a static method!
-		// Using a `static_node` to indicate that the search should be canceled.
-		// This means that a local variable was defined and called `this` or `self` and should indicate a 'static method'.
-		// return tmp ? (void *) & static_node : find_this_or_self_id(node->declaration.init_declarator_list);
-
-	case AST_INIT_DECLARATOR:
-		//	So `AST_INIT_DECLARATOR` handles a separate scenario, and that's why it's filtered out above!
-		//	You CAN have a `this` or `self` in the `.initializer`, but NOT in the `.declarator`
-		tmp = find_this_or_self_id(node->init_declarator.declarator);
-		//	You could do something like `int foo[this] = 0;`
-		if (tmp) {
-			if (node->init_declarator.declarator->type != AST_ARRAY) {
-				break;
-			}
-			return tmp; // `this` or `self` was used to initialize an array member!?!?
-		}
-		return find_this_or_self_id(node->init_declarator.initializer);
-
-	case AST_POINTER_DECLARATOR:
-		return find_this_or_self_id(node->pointer_declarator.direct_declarator);
-
-	case AST_EXPRESSION_STATEMENT:
-		return find_this_or_self_id(node->expr_stmt.expr);
-
-	case AST_TERNARY:
-		tmp = find_this_or_self_id(node->ternary.cond);
-		if (tmp) return tmp;
-		tmp = find_this_or_self_id(node->ternary.true_expr);
-		if (tmp) return tmp;
-		return find_this_or_self_id(node->ternary.false_expr);
-
-	case AST_IF:
-		tmp = find_this_or_self_id(node->if_stmt.cond);
-		if (tmp) return tmp;
-		tmp = find_this_or_self_id(node->if_stmt.if_true);
-		if (tmp) return tmp;
-		return find_this_or_self_id(node->if_stmt.if_false); // NOTE: We don't need to do an explicit `if_false == NULL` test! It's done at the top of the function!
-
-	case AST_SWITCH:
-		tmp = find_this_or_self_id(node->switch_stmt.expr);
-		if (tmp) return tmp;
-		return find_this_or_self_id(node->switch_stmt.stmt);
-
-	case AST_WHILE:
-		tmp = find_this_or_self_id(node->while_stmt.cond);
-		if (tmp) return tmp;
-		return find_this_or_self_id(node->while_stmt.body);
-
-	case AST_DO_WHILE:
-		tmp = find_this_or_self_id(node->do_while_stmt.body);
-		if (tmp) return tmp;
-		return find_this_or_self_id(node->do_while_stmt.cond);
-
-	case AST_FOR:
-		tmp = find_this_or_self_id(node->for_stmt.init);
-		if (tmp) return tmp;
-		tmp = find_this_or_self_id(node->for_stmt.cond);
-		if (tmp) return tmp;
-		tmp = find_this_or_self_id(node->for_stmt.incr);
-		if (tmp) return tmp;
-		return find_this_or_self_id(node->for_stmt.body);
-
-	case AST_RETURN:
-		return find_this_or_self_id(node->return_stmt.expr);
-
-	case AST_ARRAY:
-		tmp = find_this_or_self_id(node->array.direct_declarator);
-		if (tmp) {
-			break;
-		}
-		return find_this_or_self_id(node->array.expr);
-
-	case AST_ARRAY_SUBSCRIPT:
-		tmp = find_this_or_self_id(node->array_subscript.array);
-		if (tmp) return tmp;
-		return find_this_or_self_id(node->array_subscript.index);
-
-	case AST_UNSPECIFIED_ARRAY:	//	eg. `int a[] = {1, 2, 3};`
-		return find_this_or_self_id(node->unspecified_array.direct_declarator);
-
-	case AST_FUNCTION_CALL:	//	HOW does this work? Where will `this` or `self` be in a function call???
-		tmp = find_this_or_self_id(node->function_call.function);	// I think a function called `this` or `self` is a problem!!
-		if (tmp) {	//	`this` or `self` was used as a function call NAME!
-			return tmp;		//	I believe this should fix `this` or `self` being used in a function call!
-		}
-		//if (tmp) return tmp;
-		return find_this_or_self_id(node->function_call.args);
-
-	// case AST_FUNCTION_DECLARATOR:	//	Do I need this? Is this valid?
-	// 	return find_this_or_self_id(node->function_declarator.params);
-
-	case AST_MEMBER_ACCESS:
-	case AST_MEMBER_ACCESS_POINTER:
-		return find_this_or_self_id(node->member_access.object);
-
-		//	We don't support finding `this` or `self` as a member name!
-		//	eg. `foo.this` or `foo->self` ... they might have a structure member called `this` or `self`!
-		// tmp = find_this_or_self_id(node->member_access.object);
-		// if (tmp) return tmp;
-		// return find_this_or_self_id(node->member_access.member);
-
-	case AST_PRE_INC:
-	case AST_PRE_DEC:
-	case AST_SIZEOF_EXPR:
-	case AST_SIZEOF_TYPE:
-	case AST_ALIGNOF:
-	case AST_ADDRESS_OF:
-	// case AST_DEREF:
-	case AST_DEREFERENCE:
-	case AST_POSITIVE:
-	case AST_NEGATIVE:
-	case AST_BITWISE_NOT:
-	case AST_LOGICAL_NOT:
-	case AST_POST_INC:
-	case AST_POST_DEC:
-		return find_this_or_self_id(node->unary.expr);
-
-	case AST_ASSIGN:
-	case AST_MUL_ASSIGN:
-	case AST_DIV_ASSIGN:
-	case AST_MOD_ASSIGN:
-	case AST_ADD_ASSIGN:
-	case AST_SUB_ASSIGN:
-	case AST_SHL_ASSIGN:
-	case AST_SHR_ASSIGN:
-	case AST_AND_ASSIGN:
-	case AST_XOR_ASSIGN:
-	case AST_OR_ASSIGN:
-	case AST_OR:
-	case AST_AND:
-	case AST_BIT_OR:
-	case AST_BIT_XOR:
-	case AST_BIT_AND:
-	case AST_EQ:
-	case AST_NE:
-	case AST_LT:
-	case AST_GT:
-	case AST_LE:
-	case AST_GE:
-	case AST_SHL:
-	case AST_SHR:
-	case AST_ADD:
-	case AST_SUB:
-	case AST_MUL:
-	case AST_DIV:
-	case AST_MOD:
-		tmp = find_this_or_self_id(node->binary.left);
-		if (tmp) return tmp;
-		return find_this_or_self_id(node->binary.right);
-
-	case AST_CAST:
-		return find_this_or_self_id(node->cast.expr);
-
-	case AST_COMPOUND_LITERAL:
-		return find_this_or_self_id(node->compound_literal.init_list);
-
-	case AST_PARAMETER_DECLARATION:
-		return find_this_or_self_id(node->parameter_declaration.declarator);
-
-	case AST_INITIALIZER:
-		return find_this_or_self_id(node->initializer.list);
-
-	case AST_LABEL:
-		return find_this_or_self_id(node->label.stmt);
-	
-	case AST_CASE:
-		tmp = find_this_or_self_id(node->case_stmt.expr);
-		if (tmp) return tmp;
-		return find_this_or_self_id(node->case_stmt.stmt);
-
-	case AST_DEFAULT:
-		return find_this_or_self_id(node->default_stmt.stmt);
-
-	//	Depends on if I want to explicitly support EVERY kind of node, or if we just have a `default: return NULL;`
-	//	Currently, I've gone with `default: return NULL;` ... but ...
-	//	The problem is, users might not know that they're using a node type that I don't support!
-	//	What this means, is that if a user used `this` or `self` in a node type we haven't added, we might not pick it up!
-	case AST_NUMERIC:
-	case AST_PRAGMA:
-		return NULL;
-
-	case AST_ID:
-		return NULL;	//	don't need this if we treat all non-found nodes as 'NULL'!
-
-	default:
-		return NULL;
-		// fprintf(stderr, "ERROR: Unsupported node type `%s` (%d) in `%s()`!", get_node_name(node->type), node->type, __func__);
-		// fprintf(stderr, "It's not you, it's us! We probably need to add this node type! Please report this issue!\n");
-		// exit(EXIT_FAILURE);
-	}
-
-	fprintf(stderr, "`%s` is not allowed as a local variable name in methods within `impl` blocks!\n", tmp->type == AST_SELF ? "self" : "this");
-	exit(EXIT_FAILURE);
-
-	return NULL;
-}
-
-
-
-
-
-
-
-
-
-void register_declarator(union ast_node *node, union ast_node *typename)
-{
-	if (node == NULL) return;
-
-	switch (node->type) {
-
-	case AST_ID:
-		symbol_add_variable(node->id.id, typename);
-		return;
-
-	case AST_THIS:
-		symbol_add_variable("this", typename);
-		return;
-
-	case AST_SELF:
-		symbol_add_variable("self", typename);
-		return;
-
-	case AST_TYPEDEF_NAME:	//	AST_TYPEDEF_NAME is not really implemented yet, but it might be in future.
-		fprintf(stderr, "ERROR: `AST_TYPEDEF_NAME` node type cannot appear in the `.init_declarator_list`\n");
-		exit(EXIT_FAILURE);
-		return;
-
-	case AST_LIST:
-		//	Is this possible or not?
-		register_declarator(node->list.node, typename);
-		register_declarator(node->list.next, typename);
-		return;
-
-	default:
-		return;
-	}
-}
-
-void register_pointer_declarator(union ast_node *node, union ast_node *typename)
-{
-	if (node == NULL) return;
-
-	switch (node->type) {
-
-	case AST_ID:
-		symbol_add_pointer(node->id.id, typename);
-		return;
-
-	case AST_THIS:
-		symbol_add_pointer("this", typename);
-		return;
-
-	case AST_SELF:
-		symbol_add_pointer("self", typename);
-		return;
-
-	case AST_TYPEDEF_NAME:	//	AST_TYPEDEF_NAME is not really implemented yet, but it might be in future.
-		fprintf(stderr, "ERROR: `AST_TYPEDEF_NAME` node type cannot appear in the `.init_declarator_list`\n");
-		exit(EXIT_FAILURE);
-		return;
-
-	case AST_LIST:
-		//	Is this possible or not?
-		register_pointer_declarator(node->list.node, typename);
-		register_pointer_declarator(node->list.next, typename);
-		return;
-
-	default:
-		return;
-	}
-}
-
-void register_declaration_list(union ast_node *node, union ast_node *typename)
-{
-	// union ast_node *decl;
-
-	if (node == NULL) return;
-
-	switch (node->type) {
-
-	case AST_ID:
-	case AST_THIS:
-	case AST_SELF:
-		register_declarator(node, typename);
-		return;
-
-	case AST_TYPEDEF_NAME:	//	AST_TYPEDEF_NAME is not really implemented yet, but it might be in future.
-		fprintf(stderr, "ERROR: `AST_TYPEDEF_NAME` node type cannot appear in the declarator_list\n");
-		exit(EXIT_FAILURE);
-		return;
-
-	case AST_POINTER_DECLARATOR:
-		register_pointer_declarator(node->pointer_declarator.direct_declarator, typename);
-		return;
-
-	case AST_INIT_DECLARATOR:
-		register_declaration_list(node->init_declarator.declarator, typename);
-		// decl = node->init_declarator.declarator;
-		// if (decl->type == AST_POINTER_DECLARATOR) {
-		// 	register_pointer_declarator(decl->pointer_declarator.direct_declarator, typename);
-		// } else {
-		// 	register_declarator(decl, typename);
-		// }
-		return;
-
-	case AST_LIST:
-		//	eg. const MyStruct s;
-		register_declaration_list(node->list.node, typename);
-		register_declaration_list(node->list.next, typename);
-		return;
-
-	case AST_ARRAY:
-		//	eg. Foo foo[10]; ... `Foo` == AST_DECLARATION.decl_specs.AST_ID, `foo` == AST_DECLARATION.init_declarator_list.AST_ARRAY.direct_declarator.AST_ID
-		register_declaration_list(node->array.direct_declarator, typename);
-		return;
-
-	default:
-		return;
-	}
-}
-
-//	This function is just used to get the "type" of the declaration.
-//	eg. Car *car ... the type will be "Car".
-//	This is found as an AST_ID node in the `node->declaration.decl_specs` (which can sometimes include a list, like `const Car`)
-//	Once the `type` is found, then we can register individual variable names belonging to that type!
-//	We currently don't implement `AST_TYPEDEF_NAME`, but this would be a very good place where that node type would be useful!
-void register_variable_declaration_get_typename(union ast_node *node, union ast_node *declaration)
-{
-	if (node == NULL) return;
-
-	switch (node->type) {
-
-	case AST_ID:
-		register_declaration_list(declaration->declaration.init_declarator_list, node);
-		return;
-
-	case AST_TYPEDEF_NAME:
-		//	Currently, "AST_TYPEDEF_NAME" is not implemented as an actual node type, only a token returned from the lexer
-		//	I'm in two minds about implementing it as an actual node type. Is it necessary? Will it be useful?
-		//	Maybe in this case it will be useful, so we can detect only `AST_TYPEDEF_NAME`'s, since I think they are the only ones that will have an "impl" block!
-		fprintf(stderr, "ERROR: `AST_TYPEDEF_NAME` node type should be implemented in %s()\n", __func__);
-		exit(EXIT_FAILURE);
-		return;
-
-	case AST_THIS:
-		// key = "this";
-		break;
-
-	case AST_SELF:
-		// key = "self";
-		break;
-
-	case AST_LIST:
-		//	eg. const MyStruct s;
-		register_variable_declaration_get_typename(node->list.node, declaration);
-		register_variable_declaration_get_typename(node->list.next, declaration);
-		return;
-
-	case AST_TYPEDEF:
-		return;
-
-	case AST_CONST:
-		return;
-
-	case AST_STRUCT:
-	case AST_UNION:
-		//	Does not proceed on struct and union types! This is reserved mainly for variables!
-		return;
-
-	default:
-		return;
-		//	I don't think we need to handle ALL cases!
-		// fprintf(stderr, "ERROR: Unhandled node type (%s:%d) in %s\n", get_node_name(node->type), node->type, __func__);
-		// exit(EXIT_FAILURE);
-	}
-}
-
-void register_declaration(union ast_node *node)
-{
-	register_variable_declaration_get_typename(node->declaration.decl_specs, node);
-}
-
-
-
-
-
-
 
 
 
@@ -2554,7 +786,7 @@ void add_params_to_function_scope(union ast_node *node, union ast_node *parent)
 		return;
 
 	case AST_STATIC_ARRAY:
-		add_params_to_function_scope(node->static_array.direct_declarator, parent);
+		add_params_to_function_scope(node->array.direct_declarator, parent);
 		return;
 
 	case AST_ARRAY:
@@ -2595,7 +827,7 @@ void add_params_to_function_scope(union ast_node *node, union ast_node *parent)
 			tmp = node->parameter_declaration.declarator->dynamic_array.direct_declarator;
 		} else if (node->parameter_declaration.declarator->type == AST_STATIC_ARRAY) {
 			printf("-------------------------------------------------------- node->parameter_declaration.declarator->type == AST_STATIC_ARRAY\n");
-			tmp = node->parameter_declaration.declarator->static_array.direct_declarator;
+			tmp = node->parameter_declaration.declarator->array.direct_declarator;
 		} else {
 			printf("-------------------------------------------------------- node->parameter_declaration.declarator->type != AST_POINTER_DECLARATOR\n");
 			tmp = node->parameter_declaration.declarator;
@@ -2740,630 +972,13 @@ void expand_function_calls(union ast_node *node, union ast_node *parent)
 
 
 
-void process_new_function(union ast_node *node, union ast_node *parent)
-{
-	union ast_node *tmp;
 
-	node->type = AST_FUNCTION_DEFINITION;
-	tmp = node->function_definition.declarator;
-	if (tmp->type == AST_IMPL_NEW_DECLARATOR) {
-		tmp->type = AST_POINTER_DECLARATOR;
-		tmp = tmp->pointer_declarator.direct_declarator;
-		if (tmp->type == AST_FUNCTION_DECLARATOR) {
-			sprintf(func_name, "%s__new", parent->impl.id->id.id);
 
-			// Add the function name to the global symbol table
-			//symbol_t *symbol = symbol_add_function(func_name, node);
-			//	TODO: Check that a function with this name doesn't already exist!
 
 
-			// fn_impl = (impl_t *) hash_map_get_value(&impl_functions, func_name);
-			// if (fn_impl == NULL) {
-			// 	hash_map_add(&impl_functions, func_name, node);
-			// } else {
-			// 	fprintf(stderr, "Error: Duplicate `new` function detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-			// 	exit(EXIT_FAILURE);
-			// }
 
-			// Rename the `new` function
-			tmp->function_declarator.direct_declarator = create_id_node(func_name);
-			return;
-		}
-	}
-	fprintf(stderr, "Unsupported `new` operator syntax or structure!!\n");
-	exit(EXIT_FAILURE);
-}
 
 
-void detach_impl_body(union ast_node *node, union ast_node *parent)
-{
-	//	Step 1: make sure the "impl" `id` is a registered typedef! ... OR, we can just do that in the parser!
-	//	Step 2: detach the impl node from the parent! Attach the body nodes instead!
-	if (parent->type == AST_LIST) {
-		if (parent->list.node == node) {
-			parent->list.node = node->impl.body;
-		} else if (parent->list.next == node) {  // Very unlikely! This would mean that this is the LAST entry in the translation unit / file!
-			parent->list.next = node->impl.body;
-		} else {
-			fprintf(stderr, "Regression error detected. Make sure the parent node passed to process_impl is an AST_LIST node that includes the AST_IMPL node!\n");
-			exit(EXIT_FAILURE);
-		}
-	} else {
-		if (parent == ast_root) {
-			ast_root = node->impl.body;
-		} else {
-			fprintf(stderr, "Unknown or unhandled `impl` parent! `impl` statements may only appear at the root level\n");
-			exit(EXIT_FAILURE);
-		}
-	}
-}
-
-void process_static_impl(union ast_node *node, union ast_node *parent)
-{
-	if (node == NULL) return;
-
-	struct ast_function_declarator_node *fn_decl;
-	union ast_node *tmp;
-
-	switch (node->type) {
-
-	case AST_STATIC_IMPL:
-		//	Make sure we are at the GLOBAL symbol table level! ie. index 0 in the symbol table ... this is only really useful for debugging!
-		// assert(symbol_table_get_level() == 0);
-		if (symbol_table_get_level() != 0) {
-			fprintf(stderr, "`impl` statements may only appear at the root level!\n"); // I think this is redundant! We can just leave the assert()!
-			if (flags.debug) {
-				symbol_table_print(stderr);
-			}
-			assert(symbol_table_get_level() == 0); // will show us the level! ... only debug mode or without NDEBUG!
-			exit(EXIT_FAILURE);
-		}
-
-		detach_impl_body(node, parent);
-
-		//	Step 2: Loop through all the functions in the "impl" block and rename them!
-		process_static_impl(node->impl.body, node);
-
-		//	Step 3: Loop through the functions code blocks, and expand all function calls and getter/setter calls!
-		break;
-
-	case AST_LIST:
-		process_static_impl(node->list.node, parent);
-		process_static_impl(node->list.next, parent);
-		break;
-
-	case AST_FUNCTION_DEFINITION:
-		tmp = node->function_definition.declarator;
-		if (tmp->type == AST_POINTER_DECLARATOR) {
-			tmp = tmp->pointer_declarator.direct_declarator;
-			if (tmp->type == AST_FUNCTION_DECLARATOR) {
-				fn_decl = &tmp->function_declarator;
-			} else {
-				// TODO: Handle a pointer pointer eg. `int (*(*foo)(int))();`
-				// TODO: Handle a double pointer eg. `int (**foo)(int);`
-				// TODO: Handle a pointer to a pointer eg. `Car **foo(int);`
-				fprintf(stderr, "Expected a standard function declarator! Found AST node id %d instead\n", tmp->type);
-				exit(EXIT_FAILURE);
-			}
-		} else if (tmp->type == AST_FUNCTION_DECLARATOR) {
-			fn_decl = &tmp->function_declarator;
-		} else {
-			fprintf(stderr, "Expected a standard function declarator! Found AST node id %d instead\n", tmp->type);
-			exit(EXIT_FAILURE);
-		}
-
-		// //	Detect if there is a `getter` or `setter` function with the same name!
-		// sprintf(func_name, "%s__get__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-		// if (hash_map_get_value(&impl_functions, func_name)) {
-		// 	fprintf(stderr, "Error: `getter` and `non-getter` function with the same name detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 	exit(EXIT_FAILURE);
-		// }
-		// sprintf(func_name, "%s__set__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-		// if (hash_map_get_value(&impl_functions, func_name)) {
-		// 	fprintf(stderr, "Error: `setter` and `non-setter` function with the same name detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 	exit(EXIT_FAILURE);
-		// }
-
-		//	TODO: Check if the function signature is the same as the declaration! (if it exists) For now, we can just leave it to the compiler to do this for us!
-
-		sprintf(func_name, "%s__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-		//symbol = symbol_add_function(func_name, node);
-		fn_decl->direct_declarator = create_id_node(func_name);
-		break;
-
-	case AST_GETTER:
-		node->type = AST_FUNCTION_DEFINITION;
-		tmp = node->function_definition.declarator;
-		if (tmp->type == AST_POINTER_DECLARATOR) {
-			tmp = tmp->pointer_declarator.direct_declarator;
-			if (tmp->type == AST_FUNCTION_DECLARATOR) {
-				fn_decl = &tmp->function_declarator;
-			} else {
-				fprintf(stderr, "ERROR: Expected a standard `getter` function declarator! Found AST node id %d (%s) instead\n", tmp->type, get_node_name(tmp->type));
-				exit(EXIT_FAILURE);
-			}
-		} else if (tmp->type == AST_FUNCTION_DECLARATOR) {
-			fn_decl = &tmp->function_declarator;
-		} else if (tmp->type == AST_LIST) {
-			tmp = tmp->list.node;
-			if (tmp->type == AST_ID) {
-				fprintf(stderr, ">>> TTT %s\n", tmp->id.id);
-				exit(EXIT_FAILURE);
-			}
-			fprintf(stderr, "Found AST node id %d\n", tmp->type);
-			exit(EXIT_FAILURE);
-		} else {
-			fprintf(stderr, "Unsupported `getter` syntax or structure! Found AST node id %d (%s) instead\n", tmp->type, get_node_name(tmp->type));
-			exit(EXIT_FAILURE);
-		}
-
-		sprintf(func_name, "%s__get__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-		//symbol = symbol_add_getter(func_name, node);
-		fn_decl->direct_declarator = create_id_node(func_name);
-		break;
-
-	default:
-		//	NOTE: An end user should never see this! Because we should have already filtered out the invalid AST nodes during parsing!
-		fprintf(stderr, "Error: Unexpected AST node %s (%d) in `%s!\n", get_node_name(node->type), node->type, __func__);
-		exit(EXIT_FAILURE);
-		break;
-	}
-}
-
-
-
-
-// Prepend `self` or `this` to the parameter list!
-void prepend_this_or_self_to_params(union ast_node *node, struct ast_function_declarator_node *fn_decl, union ast_node *parent)
-{
-	union ast_node *decl_specs;
-	union ast_node *this_or_self;
-	union ast_node *tmp;
-
-	if (fn_decl->identifier_list) {
-		assert(fn_decl->identifier_list->type == AST_CONST);
-		decl_specs = create_list_node(fn_decl->identifier_list, parent->impl.id, " ");
-		fn_decl->identifier_list = NULL;
-	} else {
-		decl_specs = parent->impl.id;
-	}
-
-	this_or_self = node->function_definition.block ? find_this_or_self_id(node->function_definition.block) : NULL;
-	if (this_or_self == NULL) this_or_self = (void *) & self_node; // This is where we set the 'default' argument name for the 'hidden' first argument 'impl' blocks. It could be either 'this' or 'self'. Since we were unable to find a name in the code, we just set the name to 'self'! We require a name for GCC! We could also just make this a neutral name like '_' or something!
-	tmp = create_parameter_declaration_node(decl_specs, create_pointer_declarator_node(create_pointer_node(NULL, NULL), this_or_self));
-
-	fn_decl->params = fn_decl->params == NULL ? tmp : create_list_node(tmp, fn_decl->params, ", ");
-}
-
-
-void process_impl(union ast_node *node, union ast_node *parent)
-{
-	if (node == NULL) return;
-
-	struct ast_function_declarator_node *fn_decl;
-	union ast_node *tmp;
-
-	switch (node->type) {
-
-	case AST_IMPL:
-		//	Make sure we are at the GLOBAL symbol table level! ie. index 0 in the symbol table ... this is only really useful for debugging!
-		// assert(symbol_table_get_level() == 0);
-		if (symbol_table_get_level() != 0) {
-			fprintf(stderr, "`impl` statements may only appear at the root level!\n"); // I think this is redundant! We can just leave the assert()!
-			if (flags.debug) {
-				symbol_table_print(stderr);
-			}
-			assert(symbol_table_get_level() == 0); // will show us the level!
-			exit(EXIT_FAILURE);
-		}
-
-		detach_impl_body(node, parent);
-
-
-		//	Step 2: Loop through all the functions in the "impl" block and rename them!
-		process_impl(node->impl.body, node);
-
-		//	Step 3: Loop through the functions code blocks, and expand all function calls and getter/setter calls!
-		//	This method should also add a function declaration at the top of the "impl" code so we don't have to worry about function order!
-		//expand_function_calls(node->impl.body, node);
-		break;
-
-	case AST_LIST:
-		process_impl(node->list.node, parent);
-		process_impl(node->list.next, parent);
-		break;
-
-	case AST_IMPL_NEW_FUNCTION:
-		process_new_function(node, parent);
-		break;
-
-	case AST_IMPL_DELETE_FUNCTION:
-		node->type = AST_FUNCTION_DEFINITION;
-		tmp = node->function_definition.declarator;
-		if (tmp->type == AST_FUNCTION_DECLARATOR) {
-			//tmp->type = AST_POINTER_DECLARATOR;
-			//tmp = tmp->pointer_declarator.direct_declarator;
-			// if (tmp->type == AST_FUNCTION_DECLARATOR) {
-				sprintf(func_name, "%s__delete", parent->impl.id->id.id);
-
-				// Add the function name to the global symbol table
-				//symbol = symbol_add_function(func_name, node);
-
-				fn_decl = &tmp->function_declarator;
-
-				fn_decl->direct_declarator = create_id_node(func_name);
-
-				prepend_this_or_self_to_params(node, fn_decl, parent);
-
-
-				// expand_function_calls(node->function_definition.block, node);
-				break;
-			// }
-		}
-		fprintf(stderr, "Unsupported syntax for `delete` method!! eg. void delete(&self);\n");
-		exit(EXIT_FAILURE);
-		break;
-
-
-	case AST_GETTER:
-		node->type = AST_FUNCTION_DEFINITION;
-		tmp = node->function_definition.declarator;
-		if (tmp->type == AST_POINTER_DECLARATOR) {
-			tmp = tmp->pointer_declarator.direct_declarator;
-			if (tmp->type == AST_FUNCTION_DECLARATOR) {
-				fn_decl = &tmp->function_declarator;
-			} else {
-				fprintf(stderr, "ERROR: Expected a standard `getter` function declarator! Found AST node id %d (%s) instead\n", tmp->type, get_node_name(tmp->type));
-				exit(EXIT_FAILURE);
-			}
-		} else if (tmp->type == AST_FUNCTION_DECLARATOR) {
-			fn_decl = &tmp->function_declarator;
-		} else if (tmp->type == AST_LIST) {
-			tmp = tmp->list.node;
-			if (tmp->type == AST_ID) {
-				fprintf(stderr, ">>> TTT %s\n", tmp->id.id);
-				exit(EXIT_FAILURE);
-			}
-			fprintf(stderr, "Found AST node id %d\n", tmp->type);
-			exit(EXIT_FAILURE);
-		} else {
-			fprintf(stderr, "Unsupported `getter` syntax or structure! Found AST node id %d (%s) instead\n", tmp->type, get_node_name(tmp->type));
-			exit(EXIT_FAILURE);
-		}
-
-		//	Detect if there is a `non-getter` function with the same name! Why do we need to check this???
-
-		//	TODO: FIX THIS! I've disabled it to implement the new symbol table symbol_add_...() functionality!
-
-		// sprintf(func_name, "%s__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-		// if (hash_map_get_value(&impl_functions, func_name) || hash_map_get_value(&global_scope_symbols, func_name)) {
-		// 	fprintf(stderr, "Error: `getter` and `non-getter` function with the same name detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 	exit(EXIT_FAILURE);
-		// }
-
-		sprintf(func_name, "%s__get__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-
-		//	NEW symbol table!
-		// symbol = symbol_add_getter(func_name, node);
-
-
-		// fn_impl = (impl_t *) hash_map_get_value(&impl_functions, func_name);
-		// if (fn_impl == NULL) {
-		// 	fn_impl = new__impl(node);
-			
-		// 	fn_impl->is_getter = true;
-
-		// 	if (node->function_definition.block == NULL) {
-		// 		fn_impl->has_declaration = true;
-		// 	} else {
-		// 		fn_impl->has_definition = true;
-		// 	}
-
-		// 	hash_map_add(&impl_functions, func_name, fn_impl);
-		// } else {
-		// 	// TODO: Check the function signature of both the declaration and definition!
-		// 	if (node->function_definition.block) {
-		// 		if (fn_impl->has_definition == false) {
-		// 			fn_impl->has_definition = true;
-		// 		} else {
-		// 			fprintf(stderr, "Error: Duplicate function definition detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 			exit(EXIT_FAILURE);
-		// 		}
-		// 	} else {
-		// 		if (fn_impl->has_declaration == false) {
-		// 			fn_impl->has_declaration = true;
-		// 		} else {
-		// 			fprintf(stderr, "Error: Duplicate function declaration detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 			exit(EXIT_FAILURE);
-		// 		}
-		// 		// fn_impl->has_declaration = true;
-		// 	}
-		// 	// fprintf(stderr, "Error: Duplicate function name detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 	// exit(EXIT_FAILURE);
-		// }
-
-		fn_decl->direct_declarator = create_id_node(func_name);
-
-		prepend_this_or_self_to_params(node, fn_decl, parent);
-
-		// expand_function_calls(node->function_definition.block, node);
-
-		break;
-
-	case AST_SETTER:
-		node->type = AST_FUNCTION_DEFINITION;
-		tmp = node->function_definition.declarator;
-		if (tmp->type == AST_POINTER_DECLARATOR) {
-			tmp = tmp->pointer_declarator.direct_declarator;
-			if (tmp->type == AST_FUNCTION_DECLARATOR) {
-				fn_decl = &tmp->function_declarator;
-			} else {
-				fprintf(stderr, "ERROR: Expected a standard `setter` function declarator! Found AST node id %d (%s) instead\n", tmp->type, get_node_name(tmp->type));
-				exit(EXIT_FAILURE);
-			}
-		} else if (tmp->type == AST_FUNCTION_DECLARATOR) {
-			fn_decl = &tmp->function_declarator;
-		} else if (tmp->type == AST_LIST) {
-			tmp = tmp->list.node;
-			if (tmp->type == AST_ID) {
-				fprintf(stderr, "Setter: >>> TTT %s\n", tmp->id.id);
-				exit(EXIT_FAILURE);
-			}
-			fprintf(stderr, "Setter: Found AST node id %d\n", tmp->type);
-			exit(EXIT_FAILURE);
-			//fn_decl = &tmp->function_declarator;
-		} else {
-			fprintf(stderr, "Unsupported `setter` syntax or structure! Found AST node id %d (%s) instead\n", tmp->type, get_node_name(tmp->type));
-			exit(EXIT_FAILURE);
-		}
-
-		//	Detect if there is a `non-setter` function with the same name! Why do we need to check this???
-		// sprintf(func_name, "%s__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-		// if (hash_map_get_value(&impl_functions, func_name) || hash_map_get_value(&global_scope_symbols, func_name)) {
-		// 	fprintf(stderr, "Error: `setter` and `non-setter` function with the same name detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 	exit(EXIT_FAILURE);
-		// }
-
-		sprintf(func_name, "%s__set__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-
-		//	NEW symbol table!
-		//symbol = symbol_add_setter(func_name, node);
-
-		// // Add the function name to the impl symbol table
-		// fn_impl = (impl_t *) hash_map_get_value(&impl_functions, func_name);
-		// if (fn_impl == NULL) {
-		// 	fn_impl = new__impl(node);
-			
-		// 	fn_impl->is_setter = true;
-
-		// 	if (node->function_definition.block == NULL) {
-		// 		fn_impl->has_declaration = true;
-		// 	} else {
-		// 		fn_impl->has_definition = true;
-		// 	}
-
-		// 	hash_map_add(&impl_functions, func_name, fn_impl);
-		// } else {
-		// 	// TODO: Check the function signature of both the declaration and definition!
-		// 	if (node->function_definition.block) {
-		// 		if (fn_impl->has_definition == false) {
-		// 			fn_impl->has_definition = true;
-		// 		} else {
-		// 			fprintf(stderr, "Error: Duplicate function definition detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 			exit(EXIT_FAILURE);
-		// 		}
-		// 	} else {
-		// 		if (fn_impl->has_declaration == false) {
-		// 			fn_impl->has_declaration = true;
-		// 		} else {
-		// 			fprintf(stderr, "Error: Duplicate function declaration detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 			exit(EXIT_FAILURE);
-		// 		}
-		// 		// fn_impl->has_declaration = true;
-		// 	}
-		// 	// fprintf(stderr, "Error: Duplicate function name detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 	// exit(EXIT_FAILURE);
-		// }
-
-		fn_decl->direct_declarator = create_id_node(func_name);
-
-		prepend_this_or_self_to_params(node, fn_decl, parent);
-
-		// expand_function_calls(node->function_definition.block, node);
-
-		break;
-
-	case AST_IMPL_FUNCTION_DECLARATION:
-		break;
-
-		//	disabling the code below! Will be removed later!
-
-		node->type = AST_FUNCTION_DEFINITION;
-		tmp = node->function_definition.declarator;
-		if (tmp->type == AST_POINTER_DECLARATOR) {
-			tmp = tmp->pointer_declarator.direct_declarator;
-			if (tmp->type == AST_FUNCTION_DECLARATOR) {
-				fn_decl = &tmp->function_declarator;
-			} else {
-				fprintf(stderr, "Expected a standard `impl` function declarator! Found AST node id %d (%s) instead of function declarator\n", tmp->type, get_node_name(tmp->type));
-				exit(EXIT_FAILURE);
-			}
-		} else if (tmp->type == AST_FUNCTION_DECLARATOR) {
-			fn_decl = &tmp->function_declarator;
-		} else {
-			fprintf(stderr, "Unsupported `impl` syntax or structure! Found AST node id %d (%s) instead of function declarator\n", tmp->type, get_node_name(tmp->type));
-			exit(EXIT_FAILURE);
-		}
-
-		sprintf(func_name, "%s__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-
-		//symbol = symbol_add_function(func_name, node);
-
-		// // Add the function name to the global symbol table
-		// fn_impl = (impl_t *) hash_map_get_value(&impl_functions, func_name);
-		// if (fn_impl == NULL) {
-		// 	fn_impl = new__impl(node);
-
-		// 	fn_impl->is_function = true;
-
-		// 	if (node->function_definition.block == NULL) {
-		// 		fn_impl->has_declaration = true;	//	Will always be true!
-		// 	} else {
-		// 		fn_impl->has_definition = true;
-		// 	}
-
-		// 	hash_map_add(&impl_functions, func_name, fn_impl);
-		// } else {
-		// 	// NOTE: At this point, we've detected that we already have a function with this name. We need to determine if there is an existing definition or not!
-		// 	if (fn_impl->has_definition == true) {
-		// 		fprintf(stderr, "Error: Redeclaration of function definition: %s in `impl %s`\n", fn_decl->direct_declarator->id.id, parent->impl.id->id.id);
-		// 		exit(EXIT_FAILURE);
-		// 	}
-		// 	// TODO: Make sure this function declaration is exactly the same as the other one!
-		// }
-
-		//	Rename the function!
-		fn_decl->direct_declarator = create_id_node(func_name);
-
-		break;
-
-	case AST_FUNCTION_DEFINITION:
-		tmp = node->function_definition.declarator;
-		if (tmp->type == AST_POINTER_DECLARATOR) {
-			tmp = tmp->pointer_declarator.direct_declarator;
-			if (tmp->type == AST_FUNCTION_DECLARATOR) {
-				fn_decl = &tmp->function_declarator;
-			} else {
-				// TODO: Handle a pointer pointer eg. `int (*(*foo)(int))();`
-				// TODO: Handle a double pointer eg. `int (**foo)(int);`
-				// TODO: Handle a pointer to a pointer eg. `Car **foo(int);`
-				fprintf(stderr, "Expected a standard function declarator! Found AST node id %d instead\n", tmp->type);
-				exit(EXIT_FAILURE);
-			}
-		} else if (tmp->type == AST_FUNCTION_DECLARATOR) {
-			fn_decl = &tmp->function_declarator;
-		} else {
-			fprintf(stderr, "Expected a standard function declarator! Found AST node id %d instead\n", tmp->type);
-			exit(EXIT_FAILURE);
-		}
-
-		// //	Detect if there is a `getter` or `setter` function with the same name!
-		// sprintf(func_name, "%s__get__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-		// if (hash_map_get_value(&impl_functions, func_name)) {
-		// 	fprintf(stderr, "Error: `getter` and `non-getter` function with the same name detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 	exit(EXIT_FAILURE);
-		// }
-		// sprintf(func_name, "%s__set__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-		// if (hash_map_get_value(&impl_functions, func_name)) {
-		// 	fprintf(stderr, "Error: `setter` and `non-setter` function with the same name detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 	exit(EXIT_FAILURE);
-		// }
-
-		//	TODO: Check if the function signature is the same as the declaration! (if it exists) For now, we can just leave it to the compiler to do this for us!
-
-		sprintf(func_name, "%s__%s", parent->impl.id->id.id, fn_decl->direct_declarator->id.id);
-
-
-		//symbol = symbol_add_function(func_name, node);
-
-
-		// // Add the function name to the global impl symbol table
-		// fn_impl = (impl_t *) hash_map_get_value(&impl_functions, func_name);
-		// if (fn_impl == NULL) {
-		// 	fn_impl = new__impl(node);
-
-		// 	if (node->function_definition.block == NULL) {
-		// 		fn_impl->has_declaration = true;
-		// 	} else {
-		// 		fn_impl->has_definition = true;
-		// 	}
-
-		// 	hash_map_add(&impl_functions, func_name, fn_impl);
-		// } else {
-		// 	fprintf(stderr, "Error: Duplicate function name detected: %s in `impl %s`\n", func_name, parent->impl.id->id.id);
-		// 	exit(EXIT_FAILURE);
-		// }
-
-		fn_decl->direct_declarator = create_id_node(func_name);
-
-
-
-/*
-		// Prepend `self` or `this` to the parameter list!
-
-		if (fn_decl->identifier_list) {
-			assert(fn_decl->identifier_list->type == AST_CONST);
-			decl_specs = create_list_node(fn_decl->identifier_list, parent->impl.id, " ");
-			fn_decl->identifier_list = NULL;
-		} else {
-			decl_specs = parent->impl.id;
-		}
-
-		this_or_self = node->function_definition.block ? find_this_or_self_id(node->function_definition.block) : NULL;
-		tmp = create_parameter_declaration_node(decl_specs, create_pointer_declarator_node(create_pointer_node(NULL, NULL), this_or_self));
-
-		fn_decl->params = fn_decl->params == NULL ? tmp : create_list_node(tmp, fn_decl->params, ", ");
-*/
-
-		prepend_this_or_self_to_params(node, fn_decl, parent);
-
-
-
-//		expand_function_calls(node->function_definition.block, node);
-
-		break;
-	}
-}
-
-
-
-static inline void indent(FILE *out, int n)
-{
-#	define INDENTATION_MAX 30
-	static const char *indentation[INDENTATION_MAX] = {
-		"",
-		"\t",
-		"\t\t",
-		"\t\t\t",
-		"\t\t\t\t",
-		"\t\t\t\t\t",
-		"\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-		"\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t",
-	};
-	static char buffer[256];
-
-	if (n < INDENTATION_MAX) {
-		fputs(indentation[n], out);
-	} else {
-		int i = 0;
-		for (; i < n; i++)
-			buffer[i] = '\t';
-		buffer[i] = '\0';
-		fputs(buffer, out);
-	}
-}
 
 
 
@@ -3425,7 +1040,7 @@ void check_for_setter(union ast_node *node, union ast_node *parent)
 /**
  *	Recursively loop through each AST tree node; generating the final transpiled C source code
  */
-void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
+void _codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 {
 	if (node == NULL) return;
 
@@ -3604,7 +1219,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 		;
 	*/
 	case AST_TYPEDEF:
-		fprintf(out, "typedef");
+		fputs("\ntypedef", out);
 		break;
 	case AST_EXTERN:
 		fprintf(out, "extern");
@@ -3778,20 +1393,66 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 
 
 	case AST_DECLARATION:
+		//	This is a relatively fast check. However, I think maybe we should have a special `AST_GENERIC_DECLARATION` node type, which is only used for generic declarations ... to make this check faster.
+		if (node->declaration.init_declarator_list == NULL) {
+			union ast_node *decl_specs = node->declaration.decl_specs;
+			if (is_typeof_node(AST_GENERIC_DECLARATION, decl_specs)) {
+printf("FOUND GENERIC SPECIFIER!\n");
+				//	Disabling the check for `typedef` ... to support `opaque` generics!
+				//	Is the `typedef` check necessary?
+				if (1 || is_typeof_node(AST_TYPEDEF, decl_specs)) {
+
+					build_generic_struct(node);
+
+					// printf("FOUND GENERIC SPECIFIER WITH TYPEDEF!\n");
+					//	We need to generate the typedef here, because the generic type is not a real type, but a placeholder for a real type
+					// indent(out, depth);
+					// fprintf(out, "typedef struct %s {", get_generic_type_name(node->declaration.decl_specs));
+
+						// Retrieve the generic template structure, and run through it while replacing the generic type with the real/concrete type
+
+					// fprintf(out, " } %s;\n", get_generic_type_name(node->declaration.decl_specs));
+
+					// TODO: We need to build/expand/replace the generic template structure!
+					// break;
+				} else {
+// build_generic_struct(node);
+
+				}
+			} else if (is_typeof_node(AST_GENERIC_STRUCT, decl_specs) || is_typeof_node(AST_GENERIC_UNION, decl_specs)) {
+printf("NOT FOUND GENERIC SPECIFIER!\n");
+				codegen(out, decl_specs, depth, node);
+				break;
+			}
+		}
+
+print_ast_tree(stdout, node, 0, 0);
+printf("begin register_typedef\n");
 		register_typedef(node->declaration.decl_specs, node->declaration.init_declarator_list);
+printf("being register_declaration\n");
 		register_declaration(node);
+printf("end register_declaration\n");
+
 		if (parent != NULL && parent->type != AST_FOR) {
 			indent(out, depth);
 		}
 		codegen(out, node->declaration.decl_specs, depth, node);
 		if (node->declaration.init_declarator_list) {
-			fprintf(out, " ");
+			fputc(' ', out);
 			codegen(out, node->declaration.init_declarator_list, depth, node);	//	struct test { int a; } t = { 1 }; ... this represents the "t" (if used without initialization!) and "t = { 1 }" part
+		} else {	//	This might be a generic node: `typedef Vec3<float>;` ... which wouldn't have a init_declarator_list
+			// fprintf(out, " ");
+			// codegen(out, node->declaration.decl_specs, depth, node);
+// 			char *func_name = get_generic_type_name(node->declaration.decl_specs);
+// printf("AST_DECLARATION func name: %s\n", func_name);
+			if (is_typeof_node(AST_GENERIC_DECLARATION, node->declaration.decl_specs)) {
+				//printf("FOUND GENERIC SPECIFIER!\n");
+			}
 		}
 		if (parent != NULL && parent->type == AST_FOR) {
-			fprintf(out, "; ");
+			fputs("; ", out);
 		} else {
-			fprintf(out, ";\n");
+			fputs(";\n", out);
 		}
 		break;
 
@@ -3801,10 +1462,10 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 		break;
 
 	case AST_POINTER:
-		fprintf(out, "*");
+		fputc('*', out);
 		if (node->pointer.type_qualifier_list) {
 			codegen(out, node->pointer.type_qualifier_list, depth, node);
-			fprintf(out, " ");	//	solved a problem where `char *__restrict __bar` -> `char *__restrict__bar` (missing space)
+			fputc(' ', out);	//	solved a problem where `char *__restrict __bar` -> `char *__restrict__bar` (missing space)
 		}
 		codegen(out, node->pointer.pointer, depth, node);
 		break;
@@ -3814,7 +1475,8 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 		// printf("AST_FUNCTION_DEFINITION: `%s`\n", tmp->id.id);
 		fprintf(out, "\n");
 		codegen(out, node->function_definition.decl_specs, depth, node);
-		fprintf(out, " ");
+		if (node->function_definition.decl_specs->type != AST_ABSTRACT_TYPE_NAME)
+			fputc(' ', out);
 		codegen(out, node->function_definition.declarator, depth, node);	// This will push the function name onto the global scope, but it also processes the function params, but we ignore for now! Unless there is a function body/block, then we process the params!
 		if (node->function_definition.decl_list) {
 			fprintf(out, "\n");
@@ -3856,7 +1518,8 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 
 	case AST_PARAMETER_DECLARATION:
 		codegen(out, node->parameter_declaration.decl_specs, depth, node);
-		fprintf(out, " ");
+		if (node->parameter_declaration.decl_specs->type != AST_ABSTRACT_TYPE_NAME)
+			fputc(' ', out);
 		codegen(out, node->parameter_declaration.declarator, depth, node);
 		break;
 
@@ -3864,7 +1527,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 	//	`declarator '=' initializer`
 	case AST_INIT_DECLARATOR:
 		codegen(out, node->init_declarator.declarator, depth, node);
-		fprintf(out, " = ");
+		fputs(" = ", out);
 		codegen(out, node->init_declarator.initializer, depth, node);
 		break;
 
@@ -3882,6 +1545,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 
 	case AST_ABSTRACT_TYPE_NAME:
 		codegen(out, node->abstract_type_name.specifier_qualifier_list, depth, node);
+		fputc(' ', out);
 		codegen(out, node->abstract_type_name.abstract_declarator, depth, node);
 		break;
 
@@ -3903,7 +1567,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 	//	-----------------------------------------------------------------------
 
 	case AST_ELLIPSIS:
-		fprintf(out, "...");
+		fputs("...", out);
 		break;
 
 	//	-----------------------------------------------------------------------
@@ -3931,20 +1595,20 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 		break;
 
 	case AST_STATIC_ARRAY:
-		codegen(out, node->static_array.direct_declarator, depth, node);
+		codegen(out, node->array.direct_declarator, depth, node);
 		fprintf(out, "[ static ");
-		if (node->static_array.type_qualifier_list) {
-			codegen(out, node->static_array.type_qualifier_list, depth, node);
+		if (node->array.type_qualifier_list) {
+			codegen(out, node->array.type_qualifier_list, depth, node);
 			fprintf(out, " ");
 		}
-		codegen(out, node->static_array.expr, depth, node);
+		codegen(out, node->array.expr, depth, node);
 		fprintf(out, "]");
 		break;
 
 	case AST_ARRAY:
 		codegen(out, node->array.direct_declarator, depth, node);
 		fprintf(out, "[");
-		if (node->static_array.type_qualifier_list) {
+		if (node->array.type_qualifier_list) {
 			codegen(out, node->array.type_qualifier_list, depth, node);
 			fprintf(out, " ");
 		}
@@ -4057,8 +1721,22 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 				symbol = symbol_get(tmp->id.id);
 				if (symbol != NULL && symbol->is_variable) {	//	Could also be a pointer type, but not necessary eg. `Foo foo` is not a pointer!
 					assert(symbol->node != NULL);
-					// check if the symbol is an AST_ID node. If it's NOT, then it's probably a normal variable. eg. AST_INT
+
+					const char *sym;
 					if (symbol->node->type == AST_ID) {
+						sym = symbol->node->id.id;
+					} else if (symbol->node->type == AST_GENERIC_DECLARATION) {
+						sym = get_generic_type_name(symbol->node);
+					} else {
+						assert(get_id_node(symbol->node)->type == AST_ID);
+						sym = get_id_node(symbol->node)->id.id;
+					}
+					sprintf(func_name, "%s__set__%s", sym, node->binary.left->member_access.member->id.id);
+
+					// check if the symbol is an AST_ID node. If it's NOT, then it's probably a normal variable. eg. AST_INT
+					// if (symbol->node->type == AST_ID) {
+
+
 
 						// This will return the data type of the variable, usually a typedef.
 						// We take that typedef name, and append "__set__" to it.
@@ -4066,7 +1744,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 						// Then we append the value we are assigning to it.
 						// Then we append a semicolon.
 						// eg. Foo__set__x(&foo, 10);
-						sprintf(func_name, "%s__set__%s", symbol->node->id.id, node->binary.left->member_access.member->id.id);
+						// sprintf(func_name, "%s__set__%s", symbol->node->id.id, node->binary.left->member_access.member->id.id);
 						symbol = symbol_get(func_name);
 						if (symbol != NULL) {
 							// We found a setter function!
@@ -4085,7 +1763,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 							codegen(out, node, depth, parent);
 							break;
 						}
-					}
+					// }
 				}
 			}
 		}
@@ -4104,14 +1782,25 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 				if (symbol != NULL && symbol->is_variable) {
 					assert(symbol->node != NULL);
 
+					const char *sym;
 					if (symbol->node->type == AST_ID) {
+						sym = symbol->node->id.id;
+					} else if (symbol->node->type == AST_GENERIC_DECLARATION) {
+						sym = get_generic_type_name(symbol->node);
+					} else {
+						assert(get_id_node(symbol->node)->type == AST_ID);
+						sym = get_id_node(symbol->node)->id.id;
+					}
+					sprintf(func_name, "%s__set__%s", sym, node->binary.left->member_access.member->id.id);
+
+					// if (symbol->node->type == AST_ID) {
 						// This will return the data type of the variable, usually a typedef.
 						// We take that typedef name, and append "__set__" to it.
 						// Then we append the member name.
 						// Then we append the value we are assigning to it.
 						// Then we append a semicolon.
 						// eg. Foo__set__x(&foo, 10);
-						sprintf(func_name, "%s__set__%s", symbol->node->id.id, node->binary.left->member_access.member->id.id);
+						// sprintf(func_name, "%s__set__%s", symbol->node->id.id, node->binary.left->member_access.member->id.id);
 						symbol = symbol_get(func_name);
 						if (symbol != NULL) {
 							// We found the setter function!
@@ -4130,7 +1819,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 							codegen(out, node, depth, parent);
 							break;
 						}
-					}
+					// }
 				}
 			}
 		}
@@ -4533,15 +2222,19 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 				assert(tmp->member_access.member->type == AST_ID);
 				if (tmp->member_access.member->type == AST_ID) {
 
-					union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					// union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					const char *sym;
 					if (symbol->node->type == AST_ID) {
-						sym = symbol->node;
+						sym = symbol->node->id.id;
+					} else if (symbol->node->type == AST_GENERIC_DECLARATION) {
+						sym = get_generic_type_name(symbol->node);
 					} else {
-						sym = get_id_node(symbol->node);
+						assert(get_id_node(symbol->node)->type == AST_ID);
+						sym = get_id_node(symbol->node)->id.id;
 					}
+					sprintf(func_name, "%s__%s", sym, tmp->member_access.member->id.id);
 
-					assert(sym->type == AST_ID);
-					sprintf(func_name, "%s__%s", sym->id.id, tmp->member_access.member->id.id);
+// printf("#########################################>>>>>>>>>>> func_name: %s, %d\n", func_name, symbol->node->type);
 					symbol = symbol_get(func_name);
 					if (symbol != NULL) {
 						if (tmp->member_access.object->type == AST_ARRAY_SUBSCRIPT) {
@@ -4593,15 +2286,19 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 					assert(tmp->member_access.member->type == AST_ID);
 					if (tmp->member_access.member->type == AST_ID) {
 
-						union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+						// union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+						const char *sym;
 						if (symbol->node->type == AST_ID) {
-							sym = symbol->node;
+							sym = symbol->node->id.id;
+						} else if (symbol->node->type == AST_GENERIC_DECLARATION) {
+							sym = get_generic_type_name(symbol->node);
 						} else {
-							sym = get_id_node(symbol->node);
+							assert(get_id_node(symbol->node)->type == AST_ID);
+							sym = get_id_node(symbol->node)->id.id;
 						}
 
-						assert(sym->type == AST_ID);
-						sprintf(func_name, "%s__%s", sym->id.id, tmp->member_access.member->id.id);
+						// assert(sym->type == AST_ID);
+						sprintf(func_name, "%s__%s", sym, tmp->member_access.member->id.id);
 						symbol = symbol_get(func_name);
 						if (symbol != NULL) {
 
@@ -4667,15 +2364,19 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 				if (node->member_access.member->type == AST_ID) {
 					assert(symbol->node != NULL);
 
-					union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					// union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					const char *sym;
 					if (symbol->node->type == AST_ID) {
-						sym = symbol->node;
+						sym = symbol->node->id.id;
+					} else if (symbol->node->type == AST_GENERIC_DECLARATION) {
+						sym = get_generic_type_name(symbol->node);
 					} else {
-						sym = get_id_node(symbol->node);
+						assert(get_id_node(symbol->node)->type == AST_ID);
+						sym = get_id_node(symbol->node)->id.id;
 					}
 
-					assert(sym->type == AST_ID);
-					sprintf(func_name, "%s__get__%s", sym->id.id, node->member_access.member->id.id);
+					// assert(sym->type == AST_ID);
+					sprintf(func_name, "%s__get__%s", sym, node->member_access.member->id.id);
 					symbol = symbol_get(func_name);
 					if (symbol != NULL) {
 						// We found the getter function!
@@ -4726,15 +2427,19 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 				if (node->member_access.member->type == AST_ID) {
 					assert(symbol->node != NULL);
 
-					union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					// union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					const char *sym;
 					if (symbol->node->type == AST_ID) {
-						sym = symbol->node;
+						sym = symbol->node->id.id;
+					} else if (symbol->node->type == AST_GENERIC_DECLARATION) {
+						sym = get_generic_type_name(symbol->node);
 					} else {
-						sym = get_id_node(symbol->node);
+						assert(get_id_node(symbol->node)->type == AST_ID);
+						sym = get_id_node(symbol->node)->id.id;
 					}
 
-					assert(sym->type == AST_ID);
-					sprintf(func_name, "%s__get__%s", sym->id.id, node->member_access.member->id.id);
+					// assert(sym->type == AST_ID);
+					sprintf(func_name, "%s__get__%s", sym, node->member_access.member->id.id);
 					symbol = symbol_get(func_name);
 					if (symbol != NULL) {
 						// We found the getter function!
@@ -4764,15 +2469,19 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 				if (node->member_access.member->type == AST_ID) {
 					assert(symbol->node != NULL);
 
-					union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					// union ast_node *sym;	//	The AST_ID might be in an AST_LIST node. eg. `const Foo`
+					const char *sym;
 					if (symbol->node->type == AST_ID) {
-						sym = symbol->node;
+						sym = symbol->node->id.id;
+					} else if (symbol->node->type == AST_GENERIC_DECLARATION) {
+						sym = get_generic_type_name(symbol->node);
 					} else {
-						sym = get_id_node(symbol->node);
+						assert(get_id_node(symbol->node)->type == AST_ID);
+						sym = get_id_node(symbol->node)->id.id;
 					}
 
-					assert(sym->type == AST_ID);
-					sprintf(func_name, "%s__get__%s", sym->id.id, node->member_access.member->id.id);
+					// assert(sym->type == AST_ID);
+					sprintf(func_name, "%s__get__%s", sym, node->member_access.member->id.id);
 					symbol = symbol_get(func_name);
 					if (symbol != NULL) {
 						// We found the getter function!
@@ -4867,7 +2576,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 
 	case AST_EXPRESSION_GROUP:
 		fprintf(out, "(");
-		codegen(out, node->expression_group.expr, depth, node);
+		codegen(out, node->unary.expr, depth, node);
 		fprintf(out, ")");
 		break;
 
@@ -5114,7 +2823,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 
 	case AST_EXPRESSION_STATEMENT:
 		if (parent->type != AST_FOR) indent(out, depth);
-		codegen(out, node->expr_stmt.expr, depth, node);
+		codegen(out, node->unary.expr, depth, node);
 		fprintf(out, parent->type == AST_FOR ? "; " : ";\n");
 		break;
 
@@ -5259,6 +2968,118 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 	// 	//codegen(out, node->impl.body, depth, parent);
 	// 	break;
 
+
+	case AST_GENERIC_DECLARATION:
+	// 	codegen(out, node->generic_type.id, depth, parent);
+	// 	fputs("<", out);
+	// 	codegen(out, node->generic_type.type_list, depth, parent);
+	// 	fputs(">", out);
+	// 	break;
+
+	// case AST_GENERIC_SPECIFIER:
+		{
+			const char *generic_name = get_generic_type_name(node);
+printf("AST_GENERIC_DECLARATION: generic_name = %s\n", generic_name);
+			if (generic_name == NULL) {
+				fprintf(stderr, "FATAL ERROR: Could not generate generic type name!\n");
+				exit(EXIT_FAILURE);
+			}
+			fputs(generic_name, out);
+		}
+		// codegen(out, node->generic_type.id, depth, parent);
+		// fputs("<", out);
+		// codegen(out, node->generic_type.type_list, depth, parent);
+		// fputs(">", out);
+
+		//	NOTE: This should never be seen by end users! Because this should be the case from the parser!
+		// fprintf(stderr, "ERROR: AST_GENERIC_DECLARATION detected after expansion! This should never happen!\n");
+		// exit(EXIT_FAILURE);
+		break;
+
+	case AST_GENERIC_STRUCT:
+	case AST_GENERIC_UNION:
+		assert(node->generic_type.id != NULL);
+		if (node->generic_type.id->type == AST_GENERIC_DECLARATION) {
+			register_generic_struct_or_union(node);
+			if (parent->type == AST_DECLARATION && parent->declaration.decl_specs == node) {
+				parent->declaration.decl_specs = NULL;
+			}
+		} else {
+printf("HERLEJHRELJRHLEJHREJLHR J====================>>>>\n");
+		}
+		break;
+
+	case AST_GENERIC_LIST:
+print_ast_tree(stderr, parent, 0, 0);
+		fprintf(stderr, "ERROR: AST_GENERIC_LIST detected after expansion! This should never happen!\n");
+		exit(EXIT_FAILURE);
+		// codegen(out, node->generic_list.head, depth, parent);
+		// fputs(", ", out);
+		// codegen(out, node->generic_list.tail, depth, parent);
+		break;
+
+
+	case AST_GENERIC_IMPL:
+		if (node->impl.id->type == AST_GENERIC_DECLARATION) {
+		// 	//	Store the node in the symbol table for processing later!
+		// 	const char *name = get_generic_impl_name(node->impl.id);
+		// 	//	TODO: We should remove the node from the AST; create a new node, move the node into it, and set this one to NULL!
+		// 	symbol_add_generic_impl(name, node);
+		// } else if (node->impl.id->type == AST_GENERIC_SPECIFIER) {
+
+			const char *name = get_generic_impl_name(node->impl.id);
+			symbol = symbol_get(name);
+
+printf("AST_GENERIC_IMPL ===> AST_GENERIC_DECLARATION: %s\n", name);
+
+
+/*
+printf("symbol->is_generic: %d\n", symbol->is_generic);
+printf("symbol->is_struct: %d\n", symbol->is_struct);
+
+printf("symbol->is_union: %d\n", symbol->is_union);
+printf("symbol->is_function: %d\n", symbol->is_function);
+printf("symbol->is_variable: %d\n", symbol->is_variable);
+printf("symbol->is_typedef: %d\n", symbol->is_typedef);
+printf("symbol->is_setter: %d\n", symbol->is_setter);
+printf("symbol->is_getter: %d\n", symbol->is_getter);
+printf("symbol->is_pointer: %d\n", symbol->is_pointer);
+printf("symbol->is_generic_name: %d\n", symbol->is_generic_name);
+printf("symbol->is_generic_type: %d\n", symbol->is_generic_type);
+printf("symbol->is_generic_impl: %d\n", symbol->is_generic_impl);
+*/
+
+			if (symbol == NULL || symbol->is_generic_impl == false) {
+				tmp = node->impl.id->generic_type.id;
+				if (tmp->type != AST_LIST || tmp->list.node->type != AST_ID || tmp->list.next->type != AST_ID) {
+					fprintf(stderr, "FATAL ERROR: Unknown `impl` label, typename or invalid syntax structure\n");
+					exit(EXIT_FAILURE);
+				}
+				fprintf(stderr, "Syntax error: Unknown or undeclared label or object for: `impl %s %s`!\n", tmp->list.node->id.id, tmp->list.next->id.id);
+				exit(EXIT_FAILURE);
+			}
+
+			build_impl_from_generic(node, symbol->node);
+printf("AST_GENERIC_IMPL ===> AST_GENERIC_DECLARATION ===> codegen()\n");
+print_ast_tree(stdout, node, 0, NULL);
+			codegen(out, node, depth, parent);
+printf("============================================================\n");
+
+		} else {
+			fprintf(stderr, "ERROR: Unknown AST_GENERIC_IMPL type detected in `.id` node. Only AST_GENERIC_DECLARATION is supported!!\n");
+			exit(EXIT_FAILURE);
+		}
+
+
+printf("AST_GENERIC_IMPL\n");
+print_ast_tree(stdout, node, 0, NULL);
+printf("name: %s\n", get_generic_impl_name(node->impl.id));
+		// symbol_add_generic_impl(node, node);
+		break;
+	case AST_GENERIC_STATIC_IMPL:
+		break;
+
+
 	case AST_DELETE_OPERATOR:
 		fprintf(stderr, "ERROR: AST_DELETE_OPERATOR detected after expansion! This should never happen!\n");
 		exit(EXIT_FAILURE);
@@ -5287,10 +3108,10 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 		break;
 
 	//	do I still use blank id? I think not!
-	case AST_BLANK_ID:
-		fprintf(stderr, "ERROR: AST_BLANK_ID detected after expansion! This should never happen!\n");
-		exit(EXIT_FAILURE);
-		break;
+	// case AST_BLANK_ID:
+	// 	fprintf(stderr, "ERROR: AST_BLANK_ID detected after expansion! This should never happen!\n");
+	// 	exit(EXIT_FAILURE);
+	// 	break;
 
 	case AST_GETTER:
 		fprintf(stderr, "ERROR: AST_GETTER detected after expansion! This should never happen!\n");
@@ -5312,6 +3133,110 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 	default:
 		fprintf(stderr, "Unknown node type id: %d\n", node->type);
 		exit(EXIT_FAILURE);
+		break;
+	}
+}
+
+
+
+
+
+
+
+
+//	Just STORED here! For the `AST_GENERIC_IMPL` code!
+void __process_impl_traversal(union ast_node *node, union ast_node *parent)
+{
+	if (node == NULL) return;
+
+	union ast_node *tmp;
+	symbol_t *symbol;
+
+	switch (node->type) {
+
+	//	-----------------------------------------------------------------------
+	//			AST_LIST
+	//	-----------------------------------------------------------------------
+
+	case AST_LIST:
+		__process_impl_traversal(node->list.node, node);
+		__process_impl_traversal(node->list.next, node);
+		break;
+
+	//	-----------------------------------------------------------------------
+	//			Super C extensions
+	//	-----------------------------------------------------------------------
+
+	case AST_IMPL:
+		process_impl(node, parent);
+		break;
+
+	case AST_STATIC_IMPL:
+		process_static_impl(node, parent);
+		break;
+
+	case AST_GENERIC_IMPL:
+		if (node->impl.id->type == AST_GENERIC_DECLARATION) {
+		// 	//	Store the node in the symbol table for processing later!
+		// 	const char *name = get_generic_impl_name(node->impl.id);
+		// 	//	TODO: We should remove the node from the AST; create a new node, move the node into it, and set this one to NULL!
+		// 	symbol_add_generic_impl(name, node);
+		// } else if (node->impl.id->type == AST_GENERIC_SPECIFIER) {
+
+			const char *name = get_generic_impl_name(node->impl.id);
+			symbol = symbol_get(name);
+
+printf("AST_GENERIC_IMPL ===> AST_GENERIC_DECLARATION: %s\n", name);
+
+
+/*
+printf("symbol->is_generic: %d\n", symbol->is_generic);
+printf("symbol->is_struct: %d\n", symbol->is_struct);
+
+printf("symbol->is_union: %d\n", symbol->is_union);
+printf("symbol->is_function: %d\n", symbol->is_function);
+printf("symbol->is_variable: %d\n", symbol->is_variable);
+printf("symbol->is_typedef: %d\n", symbol->is_typedef);
+printf("symbol->is_setter: %d\n", symbol->is_setter);
+printf("symbol->is_getter: %d\n", symbol->is_getter);
+printf("symbol->is_pointer: %d\n", symbol->is_pointer);
+printf("symbol->is_generic_name: %d\n", symbol->is_generic_name);
+printf("symbol->is_generic_type: %d\n", symbol->is_generic_type);
+printf("symbol->is_generic_impl: %d\n", symbol->is_generic_impl);
+*/
+
+			if (symbol == NULL || symbol->is_generic_impl == false) {
+				tmp = node->impl.id->generic_type.id;
+				if (tmp->type != AST_LIST || tmp->list.node->type != AST_ID || tmp->list.next->type != AST_ID) {
+					fprintf(stderr, "FATAL ERROR: Unknown `impl` label, typename or invalid syntax structure\n");
+					exit(EXIT_FAILURE);
+				}
+				fprintf(stderr, "Syntax error: Unknown or undeclared label or object for: `impl %s %s`!\n", tmp->list.node->id.id, tmp->list.next->id.id);
+				exit(EXIT_FAILURE);
+			}
+
+			build_impl_from_generic(node, symbol->node);
+printf("AST_GENERIC_IMPL ===> AST_GENERIC_DECLARATION ===> codegen()\n");
+print_ast_tree(stdout, node, 0, NULL);
+			// _codegen(out, node, 0, parent);
+printf("============================================================\n");
+
+		} else {
+			fprintf(stderr, "ERROR: Unknown AST_GENERIC_IMPL type detected in `.id` node. Only AST_GENERIC_DECLARATION is supported!!\n");
+			exit(EXIT_FAILURE);
+		}
+
+
+printf("AST_GENERIC_IMPL\n");
+print_ast_tree(stdout, node, 0, NULL);
+printf("name: %s\n", get_generic_impl_name(node->impl.id));
+		// symbol_add_generic_impl(node, node);
+		break;
+
+	case AST_GENERIC_STATIC_IMPL:		//	NOTE: 'might' be needed?
+		break;
+
+	default:
 		break;
 	}
 }

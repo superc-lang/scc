@@ -30,6 +30,19 @@ symbol_t *symbol_add_getter(const char *key, union ast_node *node);
 symbol_t *symbol_add_setter(const char *key, union ast_node *node);
 
 
+
+symbol_t *symbol_add_generic_struct_or_union(const char *key, union ast_node *node);
+
+
+
+symbol_t *symbol_add_generic_name(const char *key, union ast_node *node);
+symbol_t *symbol_add_generic_type(const char *key, union ast_node *node);
+symbol_t *symbol_add_generic_impl(const char *key, union ast_node *node);
+symbol_t *symbol_add_generic_static_impl(const char *key, union ast_node *node);
+
+symbol_t *symbol_update_generic_name(const char *key, union ast_node *node);
+
+
 symbol_t *symbol_add_typedef(const char *key, union ast_node *node);			//	Standard data type eg. typedef long int i32;
 symbol_t *symbol_add_typedef_struct(const char *key, union ast_node *node);
 symbol_t *symbol_add_typedef_union(const char *key, union ast_node *node);
@@ -49,6 +62,12 @@ int symbol_is(const char *key, int (*cmp)(symbol_t *symbol));
 
 int symbol_is_declared(const char *key);	//	declared functions = int fn();
 int symbol_is_defined(const char *key);		//	defined functions = int fn(...) { ... }
+
+
+int symbol_is_generic_name(const char *key);
+int symbol_is_generic_type(const char *key);
+int symbol_is_generic_impl(const char *key);
+int symbol_is_generic_static_impl(const char *key);
 
 
 int symbol_is_typedef(const char *key);
