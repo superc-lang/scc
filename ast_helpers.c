@@ -80,8 +80,8 @@ const char *get_node_name(int type)
 	case AST_AUTO: return "AST_AUTO";
 	case AST_REGISTER: return "AST_REGISTER";
 
-	// case AST_GENERIC_SPECIFIER: return "AST_GENERIC_SPECIFIER";
 	case AST_GENERIC_DECLARATION: return "AST_GENERIC_DECLARATION";
+	case AST_GENERIC_SPECIFIER: return "AST_GENERIC_SPECIFIER";
 	case AST_GENERIC_STRUCT: return "AST_GENERIC_STRUCT";
 	case AST_GENERIC_UNION: return "AST_GENERIC_UNION";
 
@@ -358,17 +358,17 @@ char *get_generic_type_name(union ast_node *node)
 		//	NOTE: I'm using `strcat` here because it might be used for more than just the generic type name.
 		return strcat(generic_type_name, node->id.id);
 
-	// case AST_GENERIC_SPECIFIER:
-	// 	generic_type_name[0] = '\0';
-	// 	strcat(get_generic_type_name(node->generic_type.id), "__");
-	// 	return get_generic_type_name(node->generic_type.type_list);
+	case AST_GENERIC_SPECIFIER:
+		generic_type_name[0] = '\0';
+		strcat(get_generic_type_name(node->generic_type.id), "__");
+		return get_generic_type_name(node->generic_type.type_list);
 
 	case AST_GENERIC_DECLARATION:
 		// generic_type_name[0] = '\0';
 		if (node->generic_type.type_list == NULL) {
 			union ast_node *id = get_id_node(node->generic_type.id);
 			if (id == NULL) {
-				print_ast_tree(stderr, node, 0, 0);
+				print_ast_tree(stderr, node, 0);
 				fprintf(stderr, "PARSER ERROR: Could not find the `id` node for the above generic type!\n");
 				exit(EXIT_FAILURE);
 			}
@@ -469,9 +469,8 @@ char *get_generic_type_name(union ast_node *node)
 	// case AST__BITINT:					//	Generic C23 version!
 
 	default:
-printf("%s():\n", __func__);
-print_ast_tree(stdout, node, 0, 0);
-		fprintf(stderr, "FATAL ERROR: %s(): Unknown node type: %d\n", __func__, node->type);
+		fprintf(stderr, "Parser error in %s(): Unhandled node type `%s` (%d)\n", __func__, get_node_name(node->type), node->type);
+		print_ast_tree(stderr, node, 0);
 		exit(EXIT_FAILURE);
 	}
 
@@ -509,7 +508,7 @@ char *get_generic_impl_name(union ast_node *node)
 
 	default:
 printf("%s():\n", __func__);
-print_ast_tree(stdout, node, 0, 0);
+print_ast_tree(stdout, node, 0);
 		fprintf(stderr, "FATAL ERROR in %s(): Unknown or unhandled node type: %d\n", __func__, node->type);
 		exit(EXIT_FAILURE);
 	}
@@ -542,7 +541,7 @@ char *get_generic_func_name(int func_type, union ast_node *node, union ast_node 
 			format = "%s__%s";
 			break;
 		default:
-			fprintf(stderr, "FATAL ERROR: %s(): Unknown func_type: %d\n", __func__, func_type);
+			fprintf(stderr, "Parser error in %s(): Unknown function node type %d\n", __func__, func_type);
 			exit(EXIT_FAILURE);
 	}
 
@@ -553,69 +552,6 @@ char *get_generic_func_name(int func_type, union ast_node *node, union ast_node 
 
 
 
-
-void register_generic_struct_or_union(union ast_node *node)
-{
-	union ast_node *id = get_id_node(node->struct_or_union.id);
-
-	assert(id != NULL);
-	if (id == NULL) {
-		fprintf(stderr, "PARSER ERROR: %s(): Cannot find generic ID node.\n", __func__);
-		exit(EXIT_FAILURE);
-	}
-
-	const char *name = id->id.id;
-
-// printf("*** register_generic_struct_or_union(): %s\n", name);
-
-	symbol_t *sym = symbol_get(name);
-	//  get_id_node(node->struct_or_union.id);
-	if (sym == NULL) {
-		sym = symbol_add_generic_struct_or_union(name, node);
-		sym->is_struct = node->type == AST_GENERIC_STRUCT;
-		sym->is_union = node->type == AST_GENERIC_UNION;
-		return;
-	}
-
-	//	This section will UPDATE the `.decl_list` of the generic struct/union.
-	//	For example, in the case when just `struct Foo<T>;` was declared.
-	//	This is usually the case for `opaque` structs.
-	//	We need to update the `.decl_list` to the actual definition.
-
-	//	The symbol was previously added, check for generic structs
-	if (sym->node->type != AST_GENERIC_STRUCT && sym->node->type != AST_GENERIC_UNION) {
-		fprintf(stderr, "ERROR: %s(): Symbol with name '%s' already exists! Generics cannot use an existing name.\n", __func__, name);
-		exit(EXIT_FAILURE);
-	}
-
-	if (node->struct_or_union.decl_list == NULL) {
-		//	This might just be a re-declaration, do nothing
-		return;
-	}
-
-	if (sym->node->struct_or_union.decl_list != NULL) {
-		//	We already have this generic struct, do nothing
-		fprintf(stderr, "ERROR: %s(): Symbol with name '%s' already exists and defined! Generics cannot be redefined twice.\n", __func__, name);
-		exit(EXIT_FAILURE);
-	}
-
-// printf("BEFORE: %s(): %s\n", __func__, name);
-// print_ast_tree(stdout, sym->node, 0, 0);
-	sym->node->struct_or_union.decl_list = node->struct_or_union.decl_list;
-
-// sym = symbol_get(name);
-// printf("AFTER: %s(): %s\n", __func__, name);
-// print_ast_tree(stdout, sym->node, 0, 0);
-}
-
-// void register_generic_union(union ast_node *node)
-// {
-// 	union ast_node *id = get_id_node(node->struct_or_union.id);
-
-// 	if (id) {
-// 		symbol_add_generic_union(id->id.id, node);
-// 	}
-// }
 
 
 
@@ -650,8 +586,8 @@ union ast_node *replace_generic_types(union ast_node *node, union ast_node *tmp_
 	if (node == NULL) return NULL;
 
 printf("************************************ddd************************************* %s() ==> %s (%d)\n", __func__, get_node_name(node->type), node->type);
-// print_ast_tree(stdout, tmp_list, 0, 0);
-// print_ast_tree(stdout, repl_list, 0, 0);
+// print_ast_tree(stdout, tmp_list, 0);
+// print_ast_tree(stdout, repl_list, 0);
 
 	switch (node->type) {
 
@@ -764,7 +700,7 @@ printf("%s(): NO match: `%s` != `%s`\n", __func__, node->id.id, tmp_list->id.id)
 	case AST_FUNCTION_DECLARATOR:
 		{
 printf("VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV\n");
-print_ast_tree(stdout, node, 0, 0);
+print_ast_tree(stdout, node, 0);
 printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
 			union ast_node *direct_declarator = replace_generic_types(node->function_declarator.direct_declarator, tmp_list, repl_list);
 			union ast_node *params = replace_generic_types(node->function_declarator.params, tmp_list, repl_list);
@@ -806,11 +742,18 @@ printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
 
 
 	case AST_GENERIC_DECLARATION:
-	// case AST_GENERIC_SPECIFIER:
 		return create_generic_declaration_node(
 				replace_generic_types(node->generic_type.id, tmp_list, repl_list),
-				replace_generic_types(node->generic_type.type_list, tmp_list, repl_list));
+				replace_generic_types(node->generic_type.type_list, tmp_list, repl_list),
+				node->generic_type.filename, node->generic_type.line
+			);
 
+	case AST_GENERIC_SPECIFIER:
+		return create_generic_specifier_node(
+				replace_generic_types(node->generic_type.id, tmp_list, repl_list),
+				replace_generic_types(node->generic_type.type_list, tmp_list, repl_list),
+				node->generic_type.filename, node->generic_type.line
+			);
 
 	case AST_PARAMETER_DECLARATION:
 		return create_parameter_declaration_node(
@@ -1020,7 +963,7 @@ printf("New AST_GENERIC_STRUCT name: %s\n", name);
 			//create_struct_or_union_node(id, generic_list);
 
 			union ast_node *gen = create_struct_or_union_node(node->type, new_id_node, decl_list);
-print_ast_tree(stdout, gen, 0, 0);
+print_ast_tree(stdout, gen, 0);
 
 			return gen; //create_struct_or_union_node(node->type, new_id_node, decl_list);
 		}
@@ -1033,15 +976,15 @@ print_ast_tree(stdout, gen, 0, 0);
 /**
  * There are essentially N types of generic type declarations & definitions:
  * struct Foo<T> { ... };			//	Definition
- * typedef Foo<int>;				//	Declare position of concrete type
+ * typedef Foo<int>;				//	Declare position of concrete type ... is this necessary???
  * 
- * struct Foo<>;					//	Forward declaration ... is this necessary?
+ * struct Foo<>;					//	Forward declaration ... is this necessary? YES! Only to allow users to declare a pointer to a concrete type! eg. `Foo<int> *foo;`
  * 
  * Opaque type support:
  * -------------------
- * typedef struct Foo<> Foo<int>;	//	Forward declaration of opaque type
- * struct Foo<int>;					//	This is used by `opaque types`, to declare WHERE the `opaque type's` concrete code must go!
- * 
+ * typedef struct Foo<> Foo<int>;	//	Forward declaration of opaque type ... I don't need this! I declare concrete types as necessary!
+ * struct Foo<int>;					//	This is used by `opaque types`, to declare WHERE the `opaque type's` concrete code must go! ... I don't need this! I declare concrete types as necessary!
+ * 									//	Actually, I need this! An `opaque` typedef defined one module for `Foo<int>`, doesn't mean the code can find a concrete type for it elsewhere!
  * Variable Declarations:
  * ---------------------
  * Foo<int> foo;					//	Variable declaration
@@ -1049,14 +992,15 @@ print_ast_tree(stdout, gen, 0, 0);
 void build_generic_struct(union ast_node *node)
 {
 printf("build_generic_declaration\n");
-print_ast_tree(stdout, node, 0, 0);
+print_ast_tree(stdout, node, 0);
 
 	union ast_node *decl_specs = node->declaration.decl_specs;
 
 	union ast_node *id = get_id_node(decl_specs);
 printf("id:\n");
-print_ast_tree(stdout, id, 0, 0);
+print_ast_tree(stdout, id, 0);
 
+	assert(id != NULL);
 	assert(id->type == AST_ID);
 	const char *name = id->id.id;
 
@@ -1077,19 +1021,19 @@ print_ast_tree(stdout, id, 0, 0);
 		//	Someone might have defined `struct Foo<> Bar<>` ...
 		//	However, the first `get_id_node()` should have returned `Foo` in this case anyway!
 
-		symbol = symbol_add_generic_struct_or_union(name, struct_or_union);
+		symbol = symbol_add_generic(name, struct_or_union);
 		symbol->is_struct = struct_or_union->type == AST_GENERIC_STRUCT;
 		symbol->is_union = struct_or_union->type == AST_GENERIC_UNION;
 
 printf("Struct or Union Node:\n");
-print_ast_tree(stdout, struct_or_union, 0, 0);
+print_ast_tree(stdout, struct_or_union, 0);
 
 		// fprintf(stderr, "FATAL ERROR: Unknown symbol for: %s. Unable to find a generic structure with this name.\n", id->id.id);
 		// exit(EXIT_FAILURE);
 	} else {
 		//	We need to confirm everything about the symbol, and update the structure if necessary!
 printf("Symbol:\n");
-print_ast_tree(stdout, symbol->node, 0, 0);
+print_ast_tree(stdout, symbol->node, 0);
 
 		if ( ! symbol->is_generic) {
 			fprintf(stderr, "SYNTAX ERROR: Symbol %s is not a generic structure! Are you sure you declared a generic structure with this name?\n", name);
@@ -1176,7 +1120,7 @@ print_ast_tree(stdout, symbol->node, 0, 0);
 
 
 printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ %s\n", name);
-print_ast_tree(stdout, decl_specs->list.next, 0, 0);
+print_ast_tree(stdout, decl_specs->list.next, 0);
 // exit(1);
 			return;
 
@@ -1211,7 +1155,7 @@ print_ast_tree(stdout, decl_specs->list.next, 0, 0);
 
 
 
-	//	This is not really very good, we are looking for a `hard coded` code structure!
+	//	This is NOT really very good, we are looking for a `hard coded` code structure!
 	//	eg. `typedef struct Foo<> Foo<int>;`
 	//	Which starts with an AST_LIST node!
 	/*
@@ -1346,7 +1290,7 @@ print_ast_tree(stdout, decl_specs->list.next, 0, 0);
 
 
 	union ast_node *specifier = get_node_by_type(AST_GENERIC_DECLARATION, decl_specs);
-print_ast_tree(stdout, decl_specs, 0, 0);
+print_ast_tree(stdout, decl_specs, 0);
 	assert(specifier != NULL);
 	//	NOTE: There is already a check for `AST_GENERIC_SPECIFIER` done in the codegen!
 	// NOTE: This section of code WAS below the `get_generic_type_name` call, but I had to move it above the `opaque pointer` check!
@@ -1423,7 +1367,7 @@ printf("OPAQUE DECL\n");
 	union ast_node *new_decl_list = replace_generic_types(symbol->node->struct_or_union.decl_list, declaration->generic_type.type_list, specifier->generic_type.type_list);
 
 printf("new_decl_list:\n");
-print_ast_tree(stdout, new_decl_list, 0, 0);
+print_ast_tree(stdout, new_decl_list, 0);
 
 
 	union ast_node *new_struct_or_union = create_struct_or_union_node(type, new_id_node, new_decl_list);
@@ -1444,7 +1388,7 @@ printf("symbol->is_typedef: %d\n", symbol->is_typedef);
 printf("symbol->is_setter: %d\n", symbol->is_setter);
 printf("symbol->is_getter: %d\n", symbol->is_getter);
 printf("symbol->is_pointer: %d\n", symbol->is_pointer);
-printf("symbol->is_generic_name: %d\n", symbol->is_generic_name);
+// printf("symbol->is_generic_name: %d\n", symbol->is_generic_name);
 printf("symbol->is_generic_type: %d\n", symbol->is_generic_type);
 printf("symbol->is_generic_impl: %d\n", symbol->is_generic_impl);
 
@@ -1469,8 +1413,8 @@ void build_impl_from_generic(union ast_node *specifier, union ast_node *declarat
 	}
 
 printf("%s\n", __func__);
-print_ast_tree(stdout, declaration, 0, 0);
-print_ast_tree(stdout, specifier, 0, 0);
+print_ast_tree(stdout, declaration, 0);
+print_ast_tree(stdout, specifier, 0);
 
 	/**
 	 * 	Explanation of the code that follows this comment; we basically need to convert the generic title 
@@ -1541,9 +1485,9 @@ print_ast_tree(stdout, specifier, 0, 0);
 	union ast_node *new_id_node = create_id_node(name);
 	specifier->impl.id = new_id_node;
 // printf("<<<<<<<<<<<< New name: %s\n", name);
-// print_ast_tree(stdout, specifier->impl.id, 0, 0);
-// print_ast_tree(stdout, declaration->impl.id->generic_type.type_list, 0, 0);
-// print_ast_tree(stdout, type_list, 0, 0);
+// print_ast_tree(stdout, specifier->impl.id, 0);
+// print_ast_tree(stdout, declaration->impl.id->generic_type.type_list, 0);
+// print_ast_tree(stdout, type_list, 0);
 
 
 	// specifier->impl.id = specifier->impl.id->generic_type.id->list.next;
@@ -1583,13 +1527,13 @@ void register_typedef(union ast_node *decl_specs, union ast_node *declarator)
 	}
 
 printf("%s(): decl_specs:\n", __func__);
-print_ast_tree(stdout, decl_specs, 0, 0);
+print_ast_tree(stdout, decl_specs, 0);
 
 printf("%s(): declarator:\n", __func__);
-print_ast_tree(stdout, declarator, 0, 0);
+print_ast_tree(stdout, declarator, 0);
 
 printf("%s(): node:\n", __func__);
-print_ast_tree(stdout, node, 0, 0);
+print_ast_tree(stdout, node, 0);
 
 	/* if (decl_specs->type == AST_GENERIC_SPECIFIER) { */		//	it's actually an AST_LIST!
 
@@ -1598,7 +1542,7 @@ printf("%s(): generic_node: %s\n", __func__, get_generic_type_name(decl_specs));
 		node = get_id_node(decl_specs);		//	eg. typedef Vec3<float>; ... it doesn't have a `declarator`! The `Vec3` ID node is inside `decl_specs`!
 
 printf("%s(): new node:\n", __func__);
-print_ast_tree(stdout, node, 0, 0);
+print_ast_tree(stdout, node, 0);
 
 	//	TODO: We need to generate a `generic` typedef! eg. `typedef Vec3<float>;` ==> `typedef struct Vec3__float Vec3__float;`
 	//	If this IS a generic node: then `decl_specs` will be an AST_GENERIC_SPECIFIER!

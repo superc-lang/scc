@@ -3,14 +3,22 @@
 // };
 // typedef Normal<float>;
 
-typedef long int size_t;
+typedef long int size_t, size_z;
+
+struct Test;
+typedef struct Test Test;
+typedef struct Test Test2;
 
 //	Declare the generic type, but don't define it.
 // struct Foo<T>;
 // typedef Foo<float>;
 
-typedef struct Foo<> Foo<float>;	//	Here, it's an IDENTIFIER
-typedef struct Foo<> Foo<double>;	//	Here, it's an GENERIC_NAME
+typedef struct Foo<>
+	Foo<float>,
+	Foo<double>;
+
+typedef struct Foo<>
+	Foo<double>;
 
 //typedef struct Foo<> { ... } Foo<float>;
 

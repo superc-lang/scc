@@ -34,3 +34,18 @@ As a professional C++ programmer with over 20 years experience, I think I have a
 But unfortunately for me personally, over time I've found myself becoming somewhat disillusioned by it; and also found that my own personal coding and design philosophy has diverged from that of C++.
 
 I won't say more than that, because I wouldn't be saying anything new.
+
+
+
+#### Motivations
+
+Many people will ask me "why Super C?" or "why not just use C++?".\
+Let me start by saying that I've been using both C and C++ since the 90's and love them both.\
+But when asked in an interview for a C++ position, which language do I prefer? My answer was C.\
+I love C for all the various reasons people usually cite; but mostly for it's simplicity and speed.
+
+As far as C++ is concerned, I still love it, but I've noticed a general trend over the years in the C++ community, where 
+
+I replied "I don't use C, I use C++".\
+Over the years, I've noticed a general trend 
+

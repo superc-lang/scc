@@ -1,24 +1,26 @@
 # Super C Language & Compiler
 
-#### Super C is:
+### Super C is:
 
-* **a syntactical superset of standard C**. All valid C programs are valid Super C programs.
+* **a superset of standard C**. [^superset]
 * 'C with classes' *re-imagined*!
 * [transpiled](https://en.wikipedia.org/wiki/Source-to-source_compiler) to C.
 * as fast as C.
-* more concise than C. (shorter syntax)
-* compiled to optimized machine code by an existing C compiler, such as GCC.
-* a passion project that has already taken almost a year and still in active development (as of Feb 2023).
+* more concise than C. [^concise]
 * more than just syntactic sugar for C.
-* for people that want more syntactical options and design flexibility in C; haters be gone!
+* compiled to optimized machine code by an existing C compiler, such as GCC.
+* designed to be incrementally adoptable. [^inc]
+* written in standard C, so it's easy to build; but a Super C rewrite is also possible.
+* designed to work in conjunction with existing C code, in a mixed source hybrid environment; where you have both Super C and standard C code/files. You can also compile all your standard C files with the `scc` compiler even if you never intend to alter them, or you can just *link* the final `scc` and `gcc` compiled object files together at the end; and since `scc` calls `gcc` *under the hood* anyway, the object files are binary compatible. [^hybrid]
+* designed to make use of; and build on top of the existing C infrastructure (like existing C compilers).
+* designed to be as fast as possible, in order to minimize the compile time overhead.
+* for people that want more syntactical options/freedom and design flexibility in C.
 * going to divide opinion on it's value, features, keywords, usage and place in the C community.
-* designed to be incrementally adoptable. ***
 * heavily inspired by Rust and C++; but also influenced by D, C#, Java, Kotlin and JavaScript.
 * "zero cost abstractions" without the BS!
-* like a macro code generator on steroids!
-* designed to make use of; and build on existing C libraries and infrastructure (like C compilers).
 * originally based on the C11 standard (and still compatible), but now includes many enhancements.
-* **NOT** a replacement for C, C++, Rust, Zig or any other mature systems level language. (yet)
+* a passion project several years in the making.
+* **NOT** (yet) a replacement for C, C++, Rust, Zig or any other mature systems level language.
 * **NOT** designed to replace C, it builds on top of C.
 * **NOT** trying to be a C++ clone! It has a different design philosophy.
 * **NOT** trying to be a *safe* language. If you want memory safety, use something else!
@@ -30,9 +32,22 @@
 * **NEVER** going to add exceptions or a garbage collector! Ever! Build your own if you need them!
 
 
-*** All valid C programs are valid Super C programs, so start with your existing C code, and incrementally adopt the features you want.\
-It's a 100% compatible superset of C, hence the name, Super(set) C.\
-You can create Super C 'wrappers' around libraries and structures you don't even own! By leaving the original C code untouched, and adding checks for `__SUPERC__` around the wrappers, you can gradually add Super C features to your code base, one file at a time; while still supporting a backwards compatible standard C interface. Check the `examples/` directory for an example in `multi-file3` where I support both a standard C and Super C interface to a hash table implementation.
+[^superset]: Super C is a strict superset of standard C, so all valid C programs are valid Super C programs!\
+Unlike C++, this mandate is non-negotiable for Super C; so it will remain a strict C superset, forever!\
+Therefore, all features introduced will have a C equivalent or counterpart, as it's ultimately transpiled to C, and compiled by a C compiler. The difference will be in the syntax, which will be more concise (shorter).\
+Even the word *Super* in the name is derived from the word 'superset'; hence the name, Super(set) C.
+
+[^concise]: Super C is objectively more concise than C, meaning it has shorter syntax.\
+This is objectively true; and can be verified by simply counting the number of characters required in standard C syntax for the same expression/statement in Super C syntax.\
+This is with regards to the new features added in Super C, not the existing C syntax which is the same.\
+This has implications for readability, maintainability and productivity.
+
+[^inc]: You can create Super C 'wrappers' around libraries and structures you don't even own! By leaving the original C code untouched, and adding checks for `__SUPERC__` around the Super C wrapper code, you can gradually add Super C features to your code base, one file at a time; while still supporting a backwards compatible standard C interface. Check the `examples/` directory for an example in `multi-file3` where I support both a standard C and Super C interface to a hash table implementation.
+
+[^hybrid]: Super C is designed to work in an incrementally adoptable, mixed source (hybrid) environment; where you have both Super C and standard C code and files.\
+Start with your existing C code, and incrementally adopt the features you want.\
+You can even mix Super C and C in the same file, or even in the same function by using the `__SUPERC__` macro.\
+You can also compile all your standard C files with the `scc` compiler; or compile standard C files with `gcc` and just the Super C files with `scc`; and then *link* the final compiled object files together at the end. Since `scc` calls `gcc` *under the hood*, the compiled object files are binary compatible.
 
 
 ### Features (summary)
@@ -40,19 +55,20 @@ You can create Super C 'wrappers' around libraries and structures you don't even
 All features are compiled to human readable standard C.
 
 * [Generics](#generics)
-* `impl` (inspired by Rust).
-* `NULL`, `nullptr` and `null` are 'built-in'
-* `bool`, `true` and `false` are 'built-in'
+* `impl` blocks (inspired by Rust).
+* `NULL`, `nullptr` and `null` are *built-in* keywords
+* `bool`, `true` and `false` are *built-in* keywords
 * `get` and `set`
 * `new` and `delete`
 * `=>` (single-expression `return` shorthand)
 * `::` and `.` (pseudo-namespacing)
-* `this` and `self` are implicit and auto-detected
+* `this` and `self` are implicitly added and auto-detected
+* `__SUPERC__` macro to detect support
 
 ## Features (detailed)
 
 * One of the most powerful features of Super C, is arguably native support for **Generics**!
-  * Please read the detailed section below on Super C's implementation of [Generics](#generics).
+  * Please read the detailed section below on Super C's powerful implementation of [Generics](#generics).
 * `impl` blocks are where you define methods associated with a structure or `typedef`.
   * This is more than just a choice of syntax, it has a profound impact on many aspects of the language.
   * Unlike C++ where `class` structures are 'closed', in the sense that they can't be extended without inheritance, `impl` blocks allow you to extend any `typedef` multiple times with methods, because the `impl` blocks are not 'nested' within the `struct`.

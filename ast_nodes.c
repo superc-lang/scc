@@ -1,6 +1,6 @@
 #include "ast_nodes.h"
 
-struct ast_type_node noop_node = { AST__NO_OP__ };	//	`AST__NO_OP__`, used in the place of `NULL` for certain AST actions where we want to remove a node, like from `AST_LIST`, which is always guaranteed to be non-`NULL`!
+struct ast_type_node no_op_node = { AST__NO_OP__ };	//	`AST__NO_OP__`, used in the place of `NULL` for certain AST actions where we want to remove a node, like from `AST_LIST`, which is always guaranteed to be non-`NULL`!
 
 //	Single digit node
 struct ast_digit_node digit_node[] = {
@@ -296,7 +296,7 @@ jump_statement
 // extern struct ast_type_node goto_node;	//	Use create_goto_node() instead!
 struct ast_type_node continue_node = { AST_CONTINUE };
 struct ast_type_node break_node = { AST_BREAK };
-struct ast_return_node return_node = { AST_RETURN, (void *) 0 };	//	This is for a `return` statement without an expression! Use create_return_node() for a `return` statement with an expression!
+struct ast_return_node return_node = { AST_RETURN, NULL };	//	This is for a `return` statement without an expression! Use create_return_node() for a `return` statement with an expression!
 
 
 
@@ -306,7 +306,7 @@ expression_statement
 	| expression ';'
 	;
 */
-struct ast_unary_node expression_statement_node = { AST_EXPRESSION_STATEMENT, (void *) 0 };	//	This is for an `expression` statement, but without an expression! Use create_expression_node() for an `expression` statement with an expression! eg. Just `;` by itself!
+struct ast_unary_node expression_statement_node = { AST_EXPRESSION_STATEMENT, NULL };	//	This is for an `expression` statement, but without an expression! Use create_expression_node() for an `expression` statement with an expression! eg. Just `;` by itself!
 
 
 

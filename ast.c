@@ -177,13 +177,17 @@ generic_type_list
 
 
 //	Used by both the AST_GENERIC_DECLARATION (`Vec3<T>`) and AST_GENERIC_SPECIFIER (`Vec3<float>`) node types!
-union ast_node *create_generic_type_node(int type, union ast_node *id, union ast_node *type_list)
+union ast_node *create_generic_type_node(int type, union ast_node *id, union ast_node *type_list, const char *filename, int line)
 {
 	struct ast_generic_type_node *node = (struct ast_generic_type_node *) malloc(sizeof(struct ast_generic_type_node));
 
 	node->type = type;
 	node->id = id;
 	node->type_list = type_list;
+
+	node->parent = NULL;
+	node->filename = filename;
+	node->line = line;
 
 	return (union ast_node *) node;
 }
@@ -192,15 +196,15 @@ generic_specifier
 	: IDENTIFIER '<' generic_type_specifiers '>'
 	;
 */
-// union ast_node *create_generic_specifier_node(union ast_node *id, union ast_node *type_list)
-// {
-// 	return create_generic_type_node(AST_GENERIC_SPECIFIER, id, type_list);
-// }
-
-//	eg. `Vec3<T>`
-union ast_node *create_generic_declaration_node(union ast_node *id, union ast_node *type_list)
+//	eg. `struct Vec3<T>`
+union ast_node *create_generic_declaration_node(union ast_node *id, union ast_node *type_list, const char *filename, int line)
 {
-	return create_generic_type_node(AST_GENERIC_DECLARATION, id, type_list);
+	return create_generic_type_node(AST_GENERIC_DECLARATION, id, type_list, filename, line);
+}
+//	eg. `Vec3<float>`
+union ast_node *create_generic_specifier_node(union ast_node *id, union ast_node *type_list, const char *filename, int line)
+{
+	return create_generic_type_node(AST_GENERIC_SPECIFIER, id, type_list, filename, line);
 }
 
 
@@ -636,6 +640,9 @@ union ast_node *create_declaration_node(union ast_node *decl_specs, union ast_no
 	node->type = AST_DECLARATION;
 	node->decl_specs = decl_specs;
 	node->init_declarator_list = init_declarator_list;
+	node->parent = NULL;
+	node->filename = NULL;
+	node->line = 0;
 
 	return (union ast_node *) node;
 }

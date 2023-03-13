@@ -44,7 +44,7 @@ void prepend_this_or_self_to_params(union ast_node *node, struct ast_function_de
 void detach_impl_body(union ast_node *node, union ast_node *parent)
 {
 	if (parent == NULL) {
-		ast_root = node->impl.body;
+		root_node = node->impl.body;
 		return;
 	}
 
@@ -60,8 +60,8 @@ void detach_impl_body(union ast_node *node, union ast_node *parent)
 			exit(EXIT_FAILURE);
 		}
 	} else {
-		if (parent == ast_root) {		//	NOTE: I don't think this is possible! This should probably be removed! Need to test it!
-			ast_root = node->impl.body;
+		if (parent == root_node) {		//	NOTE: I don't think this is possible! This should probably be removed! Need to test it!
+			root_node = node->impl.body;
 		} else {
 			fprintf(stderr, "PARSER ERROR: Unknown or unhandled `impl` parent! `impl` statements may only appear at the root level\n");
 			exit(EXIT_FAILURE);
@@ -567,7 +567,7 @@ void process_static_impl(union ast_node *node, union ast_node *parent)
 
 
 
-void process_impl_blocks(union ast_node *node, union ast_node *parent)
+void process_impl_blocks_loop(union ast_node *node, union ast_node *parent)
 {
 	if (node == NULL) return;
 
@@ -581,8 +581,8 @@ void process_impl_blocks(union ast_node *node, union ast_node *parent)
 	//	-----------------------------------------------------------------------
 
 	case AST_LIST:
-		process_impl_blocks(node->list.node, node);
-		process_impl_blocks(node->list.next, node);
+		process_impl_blocks_loop(node->list.node, node);
+		process_impl_blocks_loop(node->list.next, node);
 		break;
 
 	//	-----------------------------------------------------------------------
@@ -645,7 +645,7 @@ printf("symbol->is_generic_impl: %d\n", symbol->is_generic_impl);
 
 			build_impl_from_generic(node, symbol->node);
 printf("AST_GENERIC_IMPL ===> AST_GENERIC_DECLARATION ===> codegen()\n");
-print_ast_tree(stdout, node, 0, NULL);
+print_ast_tree(stdout, node, 0);
 			codegen(out, node, depth, parent);
 printf("============================================================\n");
 
@@ -656,7 +656,7 @@ printf("============================================================\n");
 
 
 printf("AST_GENERIC_IMPL\n");
-print_ast_tree(stdout, node, 0, NULL);
+print_ast_tree(stdout, node, 0);
 printf("name: %s\n", get_generic_impl_name(node->impl.id));
 		// symbol_add_generic_impl(node, node);
 		break;
@@ -673,6 +673,10 @@ printf("name: %s\n", get_generic_impl_name(node->impl.id));
 
 
 
+void process_impl_blocks(union ast_node *root_node)
+{
+	process_impl_blocks_loop(root_node, NULL);
+}
 
 
 // This is the function that searches a function body for use of either `this` or `self`.

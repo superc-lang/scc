@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *parent)
+void print_ast_tree(FILE *out, union ast_node *node, int depth)
 {
 	indent(out, depth);
 
@@ -106,7 +106,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .type_name\n", out);
-		print_ast_tree(out, node->atomic_type.type_name, depth + 1, node);
+		print_ast_tree(out, node->atomic_type.type_name, depth + 1);
 		break;
 
 	case AST_STRUCT:
@@ -115,11 +115,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	print_struct_or_union:
 		indent(out, depth);
 		fputs("|- .id\n", out);
-		print_ast_tree(out, node->struct_or_union.id, depth + 1, node);
+		print_ast_tree(out, node->struct_or_union.id, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .decl_list\n", out);
-		print_ast_tree(out, node->struct_or_union.decl_list, depth + 1, node);
+		print_ast_tree(out, node->struct_or_union.decl_list, depth + 1);
 		break;
 
 	case AST_UNION:
@@ -207,11 +207,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	print_list_node:		//	Used by: AST_GENERIC_LIST
 		indent(out, depth);
 		fputs("|- .node\n", out);
-		print_ast_tree(out, node->list.node, depth + 1, node);
+		print_ast_tree(out, node->list.node, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .next\n", out);
-		print_ast_tree(out, node->list.next, depth + 1, node);
+		print_ast_tree(out, node->list.next, depth + 1);
 		break;
 
 	case AST_DECLARATION:
@@ -220,11 +220,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .decl_specs\n", out);
-		print_ast_tree(out, node->declaration.decl_specs, depth + 1, node);
+		print_ast_tree(out, node->declaration.decl_specs, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .init_declarator_list\n", out);
-		print_ast_tree(out, node->declaration.init_declarator_list, depth + 1, node);
+		print_ast_tree(out, node->declaration.init_declarator_list, depth + 1);
 		break;
 
 	// case AST_DECLARATOR:
@@ -238,11 +238,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	_print_ast_pointer_declarator:
 		indent(out, depth);
 		fputs("|- .pointer\n", out);
-		print_ast_tree(out, node->pointer_declarator.pointer, depth + 1, node);
+		print_ast_tree(out, node->pointer_declarator.pointer, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->pointer_declarator.direct_declarator, depth + 1, node);
+		print_ast_tree(out, node->pointer_declarator.direct_declarator, depth + 1);
 		break;
 
 	case AST_POINTER:
@@ -251,11 +251,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	// _print_ast_pointer:
 		indent(out, depth);
 		fputs("|- .type_qualifier_list\n", out);
-		print_ast_tree(out, node->pointer.type_qualifier_list, depth + 1, node);	//	NULL & NULL == basic pointer! eg. int *i;
+		print_ast_tree(out, node->pointer.type_qualifier_list, depth + 1);	//	NULL & NULL == basic pointer! eg. int *i;
 
 		indent(out, depth);
 		fputs("|- .pointer\n", out);
-		print_ast_tree(out, node->pointer.pointer, depth + 1, node);
+		print_ast_tree(out, node->pointer.pointer, depth + 1);
 		break;
 
 
@@ -331,11 +331,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	BINARY_NODE:
 		indent(out, depth);
 		fputs("|- .left\n", out);
-		print_ast_tree(out, node->binary.left, depth + 1, node);
+		print_ast_tree(out, node->binary.left, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .right\n", out);
-		print_ast_tree(out, node->binary.right, depth + 1, node);
+		print_ast_tree(out, node->binary.right, depth + 1);
 		break;
 
 	case AST_ADD_ASSIGN:
@@ -383,15 +383,15 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- cond:\n", out);
-		print_ast_tree(out, node->ternary.cond, depth + 1, node);
+		print_ast_tree(out, node->ternary.cond, depth + 1);
 
 		indent(out, depth);
 		fputs("|- true_expr:\n", out);
-		print_ast_tree(out, node->ternary.true_expr, depth + 1, node);
+		print_ast_tree(out, node->ternary.true_expr, depth + 1);
 
 		indent(out, depth);
 		fputs("|- false_expr:\n", out);
-		print_ast_tree(out, node->ternary.false_expr, depth + 1, node);
+		print_ast_tree(out, node->ternary.false_expr, depth + 1);
 		break;
 
 	//	-----------------------------------------------------------------------
@@ -512,11 +512,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- type_name:\n", out);
-		print_ast_tree(out, node->cast.type_name, depth + 1, node);
+		print_ast_tree(out, node->cast.type_name, depth + 1);
 
 		indent(out, depth);
 		fputs("|- expr:\n", out);
-		print_ast_tree(out, node->cast.expr, depth + 1, node);
+		print_ast_tree(out, node->cast.expr, depth + 1);
 		break;
 
 
@@ -541,7 +541,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- ++.expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 
 	case AST_PRE_DEC:
@@ -549,7 +549,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- --.expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 
 	case AST_SIZEOF_EXPR:
@@ -557,7 +557,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 
 	case AST_SIZEOF_TYPE:
@@ -565,7 +565,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 
 	case AST_ALIGNOF:
@@ -573,7 +573,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 
 
@@ -593,27 +593,27 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	*/
 	case AST_ADDRESS_OF:
 		fputs("AST_ADDRESS_OF: (&)\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 	case AST_DEREFERENCE:
 		fputs("AST_DEREFERENCE: (*)\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 	case AST_POSITIVE:
 		fputs("AST_POSITIVE: (+)\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 	case AST_NEGATIVE:
 		fputs("AST_NEGATIVE: (-)\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 	case AST_BITWISE_NOT:
 		fputs("AST_BITWISE_NOT: (~)\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 	case AST_LOGICAL_NOT:
 		fputs("AST_LOGICAL_NOT: (!)\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 
 
@@ -643,11 +643,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .array\n", out);
-		print_ast_tree(out, node->array_subscript.array, depth + 1, node);
+		print_ast_tree(out, node->array_subscript.array, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .index\n", out);
-		print_ast_tree(out, node->array_subscript.index, depth + 1, node);
+		print_ast_tree(out, node->array_subscript.index, depth + 1);
 		break;
 
 	case AST_FUNCTION_CALL:
@@ -656,11 +656,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	_print_ast_function_call:					//	Used by `AST_DELETE_OPERATOR`
 		indent(out, depth);
 		fputs("|- .function\n", out);
-		print_ast_tree(out, node->function_call.function, depth + 1, node);
+		print_ast_tree(out, node->function_call.function, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .args\n", out);
-		print_ast_tree(out, node->function_call.args, depth + 1, node);
+		print_ast_tree(out, node->function_call.args, depth + 1);
 		break;
 
 	case AST_MEMBER_ACCESS:
@@ -668,11 +668,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .object\n", out);
-		print_ast_tree(out, node->member_access.object, depth + 1, node);
+		print_ast_tree(out, node->member_access.object, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .member\n", out);
-		print_ast_tree(out, node->member_access.member, depth + 1, node);
+		print_ast_tree(out, node->member_access.member, depth + 1);
 		break;
 
 	case AST_MEMBER_ACCESS_POINTER:
@@ -680,11 +680,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .object\n", out);
-		print_ast_tree(out, node->member_access.object, depth + 1, node);
+		print_ast_tree(out, node->member_access.object, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .member\n", out);
-		print_ast_tree(out, node->member_access.member, depth + 1, node);
+		print_ast_tree(out, node->member_access.member, depth + 1);
 		break;
 
 	case AST_POST_INC:
@@ -692,7 +692,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .expr++\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 
 	case AST_POST_DEC:
@@ -700,7 +700,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .expr--\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 
 	case AST_COMPOUND_LITERAL:
@@ -708,11 +708,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .type_name\n", out);
-		print_ast_tree(out, node->compound_literal.type_name, depth + 1, node);
+		print_ast_tree(out, node->compound_literal.type_name, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .init_list\n", out);
-		print_ast_tree(out, node->compound_literal.init_list, depth + 1, node);
+		print_ast_tree(out, node->compound_literal.init_list, depth + 1);
 		break;
 
 
@@ -741,11 +741,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .declarator\n", out);
-		print_ast_tree(out, node->init_declarator.declarator, depth + 1, node);
+		print_ast_tree(out, node->init_declarator.declarator, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .initializer\n", out);
-		print_ast_tree(out, node->init_declarator.initializer, depth + 1, node);
+		print_ast_tree(out, node->init_declarator.initializer, depth + 1);
 		break;
 
 
@@ -754,7 +754,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .stmts\n", out);
-		print_ast_tree(out, node->block.stmts, depth + 1, node);
+		print_ast_tree(out, node->block.stmts, depth + 1);
 		break;
 
 
@@ -765,7 +765,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 
 
@@ -810,11 +810,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .spec_qual_list\n", out);
-		print_ast_tree(out, node->struct_or_union_declaration.spec_qual_list, depth + 1, node);
+		print_ast_tree(out, node->struct_or_union_declaration.spec_qual_list, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .decl_list\n", out);
-		print_ast_tree(out, node->struct_or_union_declaration.decl_list, depth + 1, node);
+		print_ast_tree(out, node->struct_or_union_declaration.decl_list, depth + 1);
 		break;
 
 	case AST_STRUCT_OR_UNION_DECLARATOR:
@@ -822,11 +822,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .declarator\n", out);
-		print_ast_tree(out, node->struct_or_union_declarator.declarator, depth + 1, node);
+		print_ast_tree(out, node->struct_or_union_declarator.declarator, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->struct_or_union_declarator.expr, depth + 1, node);
+		print_ast_tree(out, node->struct_or_union_declarator.expr, depth + 1);
 		break;
 
 
@@ -847,11 +847,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .id\n", out);
-		print_ast_tree(out, node->enum_type.id, depth + 1, node);
+		print_ast_tree(out, node->enum_type.id, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .list\n", out);
-		print_ast_tree(out, node->enum_type.list, depth + 1, node);
+		print_ast_tree(out, node->enum_type.list, depth + 1);
 		break;
 
 	//	-----------------------------------------------------------------------
@@ -872,11 +872,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .left\n", out);
-		print_ast_tree(out, node->binary.left, depth + 1, node);
+		print_ast_tree(out, node->binary.left, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .right\n", out);
-		print_ast_tree(out, node->binary.right, depth + 1, node);
+		print_ast_tree(out, node->binary.right, depth + 1);
 		break;
 
 
@@ -890,11 +890,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .specifier_qualifier_list\n", out);
-		print_ast_tree(out, node->abstract_type_name.specifier_qualifier_list, depth + 1, node);
+		print_ast_tree(out, node->abstract_type_name.specifier_qualifier_list, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .abstract_declarator\n", out);
-		print_ast_tree(out, node->abstract_type_name.abstract_declarator, depth + 1, node);
+		print_ast_tree(out, node->abstract_type_name.abstract_declarator, depth + 1);
 		break;
 
 	case AST_ABSTRACT_DECLARATOR:
@@ -902,11 +902,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .pointer\n", out);
-		print_ast_tree(out, node->abstract_declarator.pointer, depth + 1, node);
+		print_ast_tree(out, node->abstract_declarator.pointer, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .direct_abstract_declarator\n", out);
-		print_ast_tree(out, node->abstract_declarator.direct_abstract_declarator, depth + 1, node);
+		print_ast_tree(out, node->abstract_declarator.direct_abstract_declarator, depth + 1);
 		break;
 
 
@@ -916,19 +916,19 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	_print_ast_function_definition:
 		indent(out, depth);
 		fputs("|- .decl_specs\n", out);
-		print_ast_tree(out, node->function_definition.decl_specs, depth + 1, node);
+		print_ast_tree(out, node->function_definition.decl_specs, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .declarator\n", out);
-		print_ast_tree(out, node->function_definition.declarator, depth + 1, node);
+		print_ast_tree(out, node->function_definition.declarator, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .decl_list\n", out);
-		print_ast_tree(out, node->function_definition.decl_list, depth + 1, node);
+		print_ast_tree(out, node->function_definition.decl_list, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .block\n", out);
-		print_ast_tree(out, node->function_definition.block, depth + 1, node);
+		print_ast_tree(out, node->function_definition.block, depth + 1);
 		break;
 
 	case AST_PARAMETER_DECLARATION:
@@ -936,20 +936,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .decl_specs\n", out);
-		print_ast_tree(out, node->parameter_declaration.decl_specs, depth + 1, node);
+		print_ast_tree(out, node->parameter_declaration.decl_specs, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .declarator\n", out);
-		print_ast_tree(out, node->parameter_declaration.declarator, depth + 1, node);
-		break;
-
-
-	case AST_RETURN:
-		fputs("AST_RETURN\n", out);
-
-		indent(out, depth);
-		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->return_stmt.expr, depth + 1, node);
+		print_ast_tree(out, node->parameter_declaration.declarator, depth + 1);
 		break;
 
 
@@ -961,7 +952,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .declarator\n", out);
-		print_ast_tree(out, node->grouped_declarator.declarator, depth + 1, node);
+		print_ast_tree(out, node->grouped_declarator.declarator, depth + 1);
 		break;
 
 	case AST_UNSPECIFIED_ARRAY:
@@ -969,11 +960,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->unspecified_array.direct_declarator, depth + 1, node);
+		print_ast_tree(out, node->unspecified_array.direct_declarator, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .type_qualifier_list\n", out);
-		print_ast_tree(out, node->unspecified_array.type_qualifier_list, depth + 1, node);
+		print_ast_tree(out, node->unspecified_array.type_qualifier_list, depth + 1);
 		break;
 
 	case AST_DYNAMIC_ARRAY:
@@ -981,11 +972,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->dynamic_array.direct_declarator, depth + 1, node);
+		print_ast_tree(out, node->dynamic_array.direct_declarator, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .type_qualifier_list\n", out);
-		print_ast_tree(out, node->dynamic_array.type_qualifier_list, depth + 1, node);
+		print_ast_tree(out, node->dynamic_array.type_qualifier_list, depth + 1);
 		break;
 
 	case AST_STATIC_ARRAY:
@@ -993,15 +984,15 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->array.direct_declarator, depth + 1, node);
+		print_ast_tree(out, node->array.direct_declarator, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .type_qualifier_list\n", out);
-		print_ast_tree(out, node->array.type_qualifier_list, depth + 1, node);
+		print_ast_tree(out, node->array.type_qualifier_list, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->array.expr, depth + 1, node);
+		print_ast_tree(out, node->array.expr, depth + 1);
 		break;
 
 	case AST_ARRAY:
@@ -1009,15 +1000,15 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->array.direct_declarator, depth + 1, node);
+		print_ast_tree(out, node->array.direct_declarator, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .type_qualifier_list\n", out);
-		print_ast_tree(out, node->array.type_qualifier_list, depth + 1, node);
+		print_ast_tree(out, node->array.type_qualifier_list, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->array.expr, depth + 1, node);
+		print_ast_tree(out, node->array.expr, depth + 1);
 		break;
 
 	case AST_FUNCTION_DECLARATOR:
@@ -1025,15 +1016,15 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .direct_declarator\n", out);
-		print_ast_tree(out, node->function_declarator.direct_declarator, depth + 1, node);
+		print_ast_tree(out, node->function_declarator.direct_declarator, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .params\n", out);
-		print_ast_tree(out, node->function_declarator.params, depth + 1, node);
+		print_ast_tree(out, node->function_declarator.params, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .identifier_list\n", out);
-		print_ast_tree(out, node->function_declarator.identifier_list, depth + 1, node);
+		print_ast_tree(out, node->function_declarator.identifier_list, depth + 1);
 		break;
 
 	//	end `direct_declarator`
@@ -1056,15 +1047,15 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .cond\n", out);
-		print_ast_tree(out, node->if_stmt.cond, depth + 1, node);
+		print_ast_tree(out, node->if_stmt.cond, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .if_true\n", out);
-		print_ast_tree(out, node->if_stmt.if_true, depth + 1, node);
+		print_ast_tree(out, node->if_stmt.if_true, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .if_false\n", out);
-		print_ast_tree(out, node->if_stmt.if_false, depth + 1, node);
+		print_ast_tree(out, node->if_stmt.if_false, depth + 1);
 		break;
 
 	case AST_SWITCH:
@@ -1072,13 +1063,100 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->switch_stmt.expr, depth + 1, node);
+		print_ast_tree(out, node->switch_stmt.expr, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .stmt\n", out);
-		print_ast_tree(out, node->switch_stmt.stmt, depth + 1, node);
+		print_ast_tree(out, node->switch_stmt.stmt, depth + 1);
 		break;
 
+
+
+	//	-----------------------------------------------------------------------
+	//	`labeled_statement`
+	//	-----------------------------------------------------------------------
+
+	/*
+	labeled_statement
+		: IDENTIFIER ':' statement					//	AST_LABEL
+		| CASE constant_expression ':' statement	//	AST_CASE
+		| DEFAULT ':' statement						//	AST_DEFAULT
+		;
+	*/
+
+	case AST_LABEL:
+		fputs("AST_LABEL\n", out);
+
+		indent(out, depth);
+		fputs("|- .id\n", out);
+		print_ast_tree(out, node->label.id, depth + 1);
+
+		indent(out, depth);
+		fputs("|- .stmt\n", out);
+		print_ast_tree(out, node->label.stmt, depth + 1);
+		break;
+
+
+	case AST_CASE:
+		fputs("AST_CASE\n", out);
+
+		indent(out, depth);
+		fputs("|- .expr\n", out);
+		print_ast_tree(out, node->case_stmt.expr, depth + 1);
+
+		indent(out, depth);
+		fputs("|- .stmt\n", out);
+		print_ast_tree(out, node->case_stmt.stmt, depth + 1);
+		break;
+
+
+	case AST_DEFAULT:
+		fputs("AST_DEFAULT\n", out);
+
+		indent(out, depth);
+		fputs("|- .stmt\n", out);
+		print_ast_tree(out, node->default_stmt.stmt, depth + 1);
+		break;
+
+
+	//	-----------------------------------------------------------------------
+	//	`jump_statement`
+	//	-----------------------------------------------------------------------
+
+	/*
+	jump_statement
+		: GOTO IDENTIFIER ';'						//	AST_GOTO
+		| CONTINUE ';'								//	AST_CONTINUE
+		| BREAK ';'									//	AST_BREAK
+		| RETURN ';'								//	AST_RETURN
+		| RETURN expression ';'						//	AST_RETURN
+	*/
+
+	case AST_GOTO:
+		fputs("AST_GOTO\n", out);
+
+		indent(out, depth);
+		fputs("|- .id\n", out);
+		print_ast_tree(out, node->goto_stmt.id, depth + 1);
+		break;
+
+
+	case AST_CONTINUE:
+		fputs("AST_CONTINUE\n", out);
+		break;
+
+	case AST_BREAK:
+		fputs("AST_BREAK\n", out);
+		break;
+
+
+	case AST_RETURN:
+		fputs("AST_RETURN\n", out);
+
+		indent(out, depth);
+		fputs("|- .expr\n", out);
+		print_ast_tree(out, node->return_stmt.expr, depth + 1);
+		break;
 
 
 	//	-----------------------------------------------------------------------
@@ -1101,11 +1179,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .cond\n", out);
-		print_ast_tree(out, node->while_stmt.cond, depth + 1, node);
+		print_ast_tree(out, node->while_stmt.cond, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .body\n", out);
-		print_ast_tree(out, node->while_stmt.body, depth + 1, node);
+		print_ast_tree(out, node->while_stmt.body, depth + 1);
 		break;
 
 	case AST_DO_WHILE:
@@ -1113,11 +1191,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .body\n", out);
-		print_ast_tree(out, node->do_while_stmt.body, depth + 1, node);
+		print_ast_tree(out, node->do_while_stmt.body, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .cond\n", out);
-		print_ast_tree(out, node->do_while_stmt.cond, depth + 1, node);
+		print_ast_tree(out, node->do_while_stmt.cond, depth + 1);
 		break;
 
 	case AST_FOR:
@@ -1125,19 +1203,19 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .init\n", out);
-		print_ast_tree(out, node->for_stmt.init, depth + 1, node);
+		print_ast_tree(out, node->for_stmt.init, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .cond\n", out);
-		print_ast_tree(out, node->for_stmt.cond, depth + 1, node);
+		print_ast_tree(out, node->for_stmt.cond, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .incr\n", out);
-		print_ast_tree(out, node->for_stmt.incr, depth + 1, node);
+		print_ast_tree(out, node->for_stmt.incr, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .body\n", out);
-		print_ast_tree(out, node->for_stmt.body, depth + 1, node);
+		print_ast_tree(out, node->for_stmt.body, depth + 1);
 		break;
 
 	//	-----------------------------------------------------------------------
@@ -1149,7 +1227,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->unary.expr, depth + 1, node);
+		print_ast_tree(out, node->unary.expr, depth + 1);
 		break;
 
 
@@ -1175,7 +1253,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .list\n", out);
-		print_ast_tree(out, node->initializer.list, depth + 1, node);
+		print_ast_tree(out, node->initializer.list, depth + 1);
 		break;
 
 	/*
@@ -1198,11 +1276,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .designation\n", out);
-		print_ast_tree(out, node->designation_initializer.designation, depth + 1, node);
+		print_ast_tree(out, node->designation_initializer.designation, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .initializer\n", out);
-		print_ast_tree(out, node->designation_initializer.initializer, depth + 1, node);
+		print_ast_tree(out, node->designation_initializer.initializer, depth + 1);
 		break;
 
 	/*
@@ -1223,11 +1301,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->designator.expr, depth + 1, node);
+		print_ast_tree(out, node->designator.expr, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .id\n", out);
-		print_ast_tree(out, node->designator.id, depth + 1, node);	//	most common case!
+		print_ast_tree(out, node->designator.id, depth + 1);	//	most common case!
 		break;
 
 
@@ -1254,11 +1332,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	_print_ast_static_assert:
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->static_assert_stmt.expr, depth + 1, node);
+		print_ast_tree(out, node->static_assert_stmt.expr, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .str\n", out);
-		print_ast_tree(out, node->static_assert_stmt.str, depth + 1, node);
+		print_ast_tree(out, node->static_assert_stmt.str, depth + 1);
 		break;
 
 
@@ -1293,11 +1371,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	_print_impl_node:
 		indent(out, depth);
 		fputs("|- .id\n", out);
-		print_ast_tree(out, node->impl.id, depth + 1, node);
+		print_ast_tree(out, node->impl.id, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .body\n", out);
-		print_ast_tree(out, node->impl.body, depth + 1, node);
+		print_ast_tree(out, node->impl.body, depth + 1);
 		break;
 
 	case AST_STATIC_IMPL:
@@ -1317,11 +1395,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .left\n", out);
-		print_ast_tree(out, node->binary.left, depth + 1, node);
+		print_ast_tree(out, node->binary.left, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .right\n", out);
-		print_ast_tree(out, node->binary.right, depth + 1, node);
+		print_ast_tree(out, node->binary.right, depth + 1);
 		break;
 
 /*
@@ -1330,11 +1408,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .id\n", out);
-		print_ast_tree(out, node->new.id, depth + 1, node);
+		print_ast_tree(out, node->new.id, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .parameter_list\n", out);
-		print_ast_tree(out, node->new.parameter_list, depth + 1, node);
+		print_ast_tree(out, node->new.parameter_list, depth + 1);
 		break;
 
 	case AST_DELETE:
@@ -1342,11 +1420,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		indent(out, depth);
 		fputs("|- .id\n", out);
-		print_ast_tree(out, node->delete.id, depth + 1, node);
+		print_ast_tree(out, node->delete.id, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .expr\n", out);
-		print_ast_tree(out, node->delete.expr, depth + 1, node);
+		print_ast_tree(out, node->delete.expr, depth + 1);
 		break;
 */
 
@@ -1370,11 +1448,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 		// indent(out, depth);
 		// fputs("|- .id\n", out);
-		// print_ast_tree(out, node->delete.id, depth + 1, node);
+		// print_ast_tree(out, node->delete.id, depth + 1);
 
 		// indent(out, depth);
 		// fputs("|- .expr\n", out);
-		// print_ast_tree(out, node->delete.expr, depth + 1, node);
+		// print_ast_tree(out, node->delete.expr, depth + 1);
 		// break;
 
 
@@ -1414,14 +1492,20 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	*/
 	case AST_GENERIC_DECLARATION:
 		fputs("AST_GENERIC_DECLARATION\n", out);
+		goto _print_generic_decl_spec;
 
+	case AST_GENERIC_SPECIFIER:
+		fputs("AST_GENERIC_SPECIFIER\n", out);
+		goto _print_generic_decl_spec;
+
+	_print_generic_decl_spec:
 		indent(out, depth);
 		fputs("|- .id\n", out);
-		print_ast_tree(out, node->generic_type.id, depth + 1, node);
+		print_ast_tree(out, node->generic_type.id, depth + 1);
 
 		indent(out, depth);
 		fputs("|- .type_list\n", out);
-		print_ast_tree(out, node->generic_type.type_list, depth + 1, node);
+		print_ast_tree(out, node->generic_type.type_list, depth + 1);
 		break;
 
 
@@ -1444,11 +1528,11 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 
 	// 	indent(out, depth);
 	// 	fputs("|- .id\n", out);
-	// 	print_ast_tree(out, node->generic.id, depth + 1, node);
+	// 	print_ast_tree(out, node->generic.id, depth + 1);
 
 	// 	indent(out, depth);
 	// 	fputs("|- .parameter_list\n", out);
-	// 	print_ast_tree(out, node->generic.parameter_list, depth + 1, node);
+	// 	print_ast_tree(out, node->generic.parameter_list, depth + 1);
 	// 	break;
 
 
@@ -1456,7 +1540,7 @@ void print_ast_tree(FILE *out, union ast_node *node, int depth, union ast_node *
 	//	-----------------------------------------------------------------------
 
 	case AST__NO_OP__:
-		fputs("AST__NO_OP__", out);
+		fputs("AST__NO_OP__\n", out);
 		break;
 
 	//	-----------------------------------------------------------------------

@@ -51,8 +51,8 @@ extern int yydebug;
     F_CONSTANT = 261,
     ENUMERATION_CONSTANT = 262,
     TYPEDEF_NAME = 263,
-    GENERIC_NAME = 264,
-    GENERIC_TYPE = 265,
+    GENERIC_TYPE = 264,
+    GENERIC_NAME = 265,
     FUNC_NAME = 266,
     SIZEOF = 267,
     ARROW = 268,
@@ -180,7 +180,7 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 49 "parser.y"
+#line 50 "parser.y"
 
 	char *id;
 	char *string;

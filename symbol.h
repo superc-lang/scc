@@ -106,11 +106,11 @@ struct symbol_t {
 	// union ast_node *declaration;	//	eg. `parameter_declaration`
 	unsigned is_function : 1;
 	unsigned is_variable : 1;
-	unsigned is_typedef  : 1;
+	unsigned is_typedef  : 1;		// eg. `typedef struct Foo<int> MyFoo;` ... `MyFoo` is a typedef!
 	unsigned is_setter   : 1;
 	unsigned is_getter   : 1;
 	unsigned is_pointer  : 1;
-	unsigned is_generic_name : 1;	// eg. `Vec3`
+	// unsigned is_generic_name : 1;	// eg. `Vec3` ... using `is_generic` instead
 	unsigned is_generic_type : 1;	// eg. `T`
 	unsigned is_generic_impl : 1;	// eg. `impl Vec3<T> { ... }`
 	unsigned is_generic_static_impl : 1;	// eg. `impl static Vec3<T> { ... }`
@@ -118,6 +118,8 @@ struct symbol_t {
 	unsigned is_struct : 1;
 	unsigned is_union : 1;
 	unsigned is_generic : 1;	// eg. `Vec3`
+
+//	unsigned is_struct_or_union_member : 1;	//	AKA AST_STRUCT_OR_UNION_DECLARATOR
 
 	unsigned is_enum_constant : 1;
 

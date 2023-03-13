@@ -223,22 +223,22 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 	case AST_STRUCT:
 		///indent(out, depth);
 		if (node->struct_or_union.id)
-			fprintf(out, "struct %s ", node->struct_or_union.id->id.id);
+			fprintf(out, "struct %s", node->struct_or_union.id->id.id);
 		else
-			fputs("struct ", out);
+			fputs("struct", out);
 		goto struct_or_union;
 
 	case AST_UNION:
 		//indent(out, depth);
 		if (node->struct_or_union.id)
-			fprintf(out, "union %s ", node->struct_or_union.id->id.id);
+			fprintf(out, "union %s", node->struct_or_union.id->id.id);
 		else
-			fputs("union ", out);
+			fputs("union", out);
 		goto struct_or_union;
 
 	struct_or_union:
 		if (node->struct_or_union.decl_list) {
-			fputs("{\n", out);
+			fputs(" {\n", out);
 			codegen(out, node->struct_or_union.decl_list, depth + 1, node);
 			indent(out, depth);
 			fputs("}", out);
@@ -341,6 +341,8 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 	//	-----------------------------------------------------------------------
 
 	case AST_BLOCK:
+		if (parent != NULL && parent->type == AST_LIST)
+			indent(out, depth);
 		fputs("{\n", out);
 		codegen(out, node->block.stmts, depth + 1, node);
 		indent(out, depth);
@@ -1326,6 +1328,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 	case AST_STATIC_IMPL:
 	case AST_NS_OP:
 	case AST_GENERIC_DECLARATION:
+	case AST_GENERIC_SPECIFIER:
 	case AST_GENERIC_STRUCT:
 	case AST_GENERIC_UNION:
 	case AST_GENERIC_LIST:
@@ -1339,7 +1342,7 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 	case AST_GETTER:
 	case AST_SETTER:
 	// case AST_BLANK_ID:	//	no longer used
-		fprintf(stderr, "PARSER ERROR: `%s` node type (%d) detected! This should never happen!\n", get_node_name(node->type), node->type);
+		fprintf(stderr, "Parser error: `%s` node type (%d) detected! This should never happen!\n", get_node_name(node->type), node->type);
 		exit(EXIT_FAILURE);
 		break;
 
@@ -1349,7 +1352,9 @@ void codegen(FILE *out, union ast_node *node, int depth, union ast_node *parent)
 	//	Because we often test for 'NULL' nodes, and output some code
 	//	A `no-op` node would pass the test, but we don't want to output code for it!
 	case AST__NO_OP__:
-		assert(parent->type == AST_LIST);	//	I want to make sure we catch non-`AST_LIST` nodes, because it might affect other node types.
+		assert(parent->type == AST_LIST
+			|| parent->type == AST_BLOCK
+		);	//	I want to make sure we catch non-`AST_LIST` nodes, because it might affect other node types.
 		//fputs("/* NOOP */", out);
 		break;
 

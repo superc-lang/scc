@@ -168,6 +168,7 @@ typedef enum ast_node_type {
 		;
 	*/
 	AST_GENERIC_DECLARATION,
+	AST_GENERIC_SPECIFIER,
 
 	AST_GENERIC_STRUCT,
 	AST_GENERIC_UNION,
@@ -745,6 +746,7 @@ struct ast_condition_node {
 
 struct ast_list_node {
 	int type;						//	AST_LIST | AST_GENERIC_LIST
+	union ast_node *parent;
 	union ast_node *node;
 	union ast_node *next;
 	const char *separator;
@@ -861,6 +863,7 @@ struct_or_union
 */
 struct ast_struct_or_union_node {
 	int type;						//	AST_STRUCT | AST_UNION
+	union ast_node *parent;
 	union ast_node *id;
 	union ast_node *decl_list;
 };
@@ -893,13 +896,15 @@ generic_specifier
 	;
 */
 struct ast_generic_type_node {
-	int type;						//	AST_GENERIC
+	int type;						//	AST_GENERIC | AST_GENERIC_DECLARATION | AST_GENERIC_SPECIFIER
+	int line;
+	const char *filename;
+	union ast_node *parent;
 	union ast_node *id;
 	union ast_node *type_list;
 };
-// union ast_node *create_generic_specifier_node(union ast_node *id, union ast_node *type_list);
-union ast_node *create_generic_declaration_node(union ast_node *id, union ast_node *type_list);
-
+union ast_node *create_generic_declaration_node(union ast_node *id, union ast_node *type_list, const char *filename, int line);
+union ast_node *create_generic_specifier_node(union ast_node *id, union ast_node *type_list, const char *filename, int line);
 
 
 
@@ -936,11 +941,13 @@ struct_declarator
 */
 struct ast_struct_or_union_declaration_node {
 	int type;						//	AST_STRUCT_OR_UNION_DECLARATION
+	union ast_node *parent;
 	union ast_node *spec_qual_list;
 	union ast_node *decl_list;
 };
 struct ast_struct_or_union_declarator_node {
 	int type;						//	AST_STRUCT_OR_UNION_DECLARATOR
+	union ast_node *parent;
 	union ast_node *declarator;
 	union ast_node *expr;
 };
@@ -1234,6 +1241,7 @@ block_item
 */
 struct ast_block_node {
 	int type;									//	AST_BLOCK  ... AKA `body`?
+	union ast_node *parent;
 	union ast_node *stmts;
 };
 union ast_node *create_block_node(union ast_node *stmts);
@@ -1250,12 +1258,14 @@ selection_statement
 */
 struct ast_if_node {
 	int type;									//	AST_IF
+	union ast_node *parent;
 	union ast_node *cond;
 	union ast_node *if_true;
 	union ast_node *if_false;
 };
 struct ast_switch_node {
 	int type;									//	AST_SWITCH
+	union ast_node *parent;
 	union ast_node *expr;
 	union ast_node *stmt;
 };
@@ -1276,16 +1286,19 @@ iteration_statement
 */
 struct ast_while_node {
 	int type;									//	AST_WHILE
+	union ast_node *parent;
 	union ast_node *cond;
 	union ast_node *body;
 };
 struct ast_do_while_node {
 	int type;									//	AST_DO_WHILE
+	union ast_node *parent;
 	union ast_node *body;
 	union ast_node *cond;
 };
 struct ast_for_node {
 	int type;									//	AST_FOR
+	union ast_node *parent;
 	union ast_node *init;
 	union ast_node *cond;
 	union ast_node *incr;
@@ -1304,6 +1317,7 @@ function_definition
 */
 struct ast_function_definition_node {
 	int type;									//	AST_FUNCTION_DEFINITION
+	union ast_node *parent;
 	union ast_node *decl_specs;
 	union ast_node *declarator;
 	union ast_node *decl_list;
@@ -1321,6 +1335,9 @@ declaration
 */
 struct ast_declaration_node {
 	int type;									//	AST_DECLARATION
+	int line;
+	const char *filename;
+	union ast_node *parent;
 	union ast_node *decl_specs;
 	union ast_node *init_declarator_list;
 };
@@ -1420,6 +1437,7 @@ type_name
 */
 struct ast_abstract_type_name_node {
 	int type;									//	AST_ABSTRACT_TYPE_NAME
+	union ast_node *parent;
 	union ast_node *specifier_qualifier_list;
 	union ast_node *abstract_declarator;
 };
@@ -1703,6 +1721,7 @@ union ast_node *create_class_declaration_node(int type, union ast_node *id, unio
 
 struct ast_impl_node {
 	int type;									//	AST_IMPL || AST_STATIC_IMPL
+	union ast_node *parent;
 	union ast_node *id;
 	union ast_node *interface;					//	NOTE: I'm unlikely to use this! Because this might indicate that you can 'randomly' declare `impl` blocks that implement interfaces that are not even in the same file! I'm more likely to use the `implements` keyword in the struct declaration! eg. struct Foo implements Bar { ... } etc.
 	union ast_node *body;

@@ -42,6 +42,11 @@ void traverse_ast(union ast_node *node, union ast_node *parent, traversal_jump_t
 {
 	if (node == NULL) return;
 
+	traverse_node(node, parent, jump_table);
+}
+
+void traverse_node(union ast_node *node, union ast_node *parent, traversal_jump_table_t *jump_table)
+{
 	jump_table[node->type].function(node, parent, jump_table);
 }
 
@@ -124,11 +129,12 @@ void traverse_impl_node(union ast_node *node, union ast_node *parent, traversal_
 	}
 }
 
-void traverse_generic_decl_node(union ast_node *node, union ast_node *parent, traversal_jump_table_t *jump_table)
+void traverse_generic_type_node(union ast_node *node, union ast_node *parent, traversal_jump_table_t *jump_table)
 {
-	if (node->generic_type.id) {
-		jump_table[node->generic_type.id->type].function(node->generic_type.id, node, jump_table);
-	}
+	assert(node->generic_type.id != NULL);
+
+	jump_table[node->generic_type.id->type].function(node->generic_type.id, node, jump_table);
+
 	if (node->generic_type.type_list) {
 		jump_table[node->generic_type.type_list->type].function(node->generic_type.type_list, node, jump_table);
 	}
@@ -609,7 +615,9 @@ void init_traversal_jump_table(traversal_jump_table_t *jump_table)
 	jump_table[AST_NS_OP].function = traverse_binary_node;
 	jump_table[AST_DELETE_OPERATOR].function = traverse_function_call_node;
 
-	jump_table[AST_GENERIC_DECLARATION].function = traverse_generic_decl_node;
+	jump_table[AST_GENERIC_DECLARATION].function = traverse_generic_type_node;
+	jump_table[AST_GENERIC_SPECIFIER].function = traverse_generic_type_node;
+
 	jump_table[AST_GENERIC_STRUCT].function = traverse_struct_or_union_node;
 	jump_table[AST_GENERIC_UNION].function = traverse_struct_or_union_node;
 	jump_table[AST_GENERIC_LIST].function = traverse_list_node;

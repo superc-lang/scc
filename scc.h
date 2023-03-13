@@ -4,7 +4,7 @@
 
 #include <stdbool.h>
 
-extern union ast_node *ast_root;
+extern union ast_node *root_node;
 
 struct compiler_flags {
 	// int optimization_level;

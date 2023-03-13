@@ -17,7 +17,7 @@ CFLAGS += -O3 -DNDEBUG
 endif
 
 
-SRCS = scc.c parser.tab.c lex.yy.c ast.c ast_nodes.c ast_helpers.c symbol_table.c symbol_keys.c print_ast_tree.c codegen.c compiler_passes.c traverse_ast.c compass_impl.c compass_generics.c
+SRCS = scc.c parser.tab.c lex.yy.c ast.c ast_nodes.c ast_helpers.c symbol_table.c symbol_keys.c print_ast_tree.c codegen.c compiler_passes.c traverse_ast.c compass_impl.c compass_generics.c compass_set_parents.c print_syntax.c
 OBJ_DIR = build
 OBJS = $(addprefix $(OBJ_DIR)/, $(SRCS:.c=.o))
 

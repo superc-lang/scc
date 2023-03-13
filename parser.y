@@ -18,6 +18,7 @@
 #include "print_ast_tree.h"
 #include "symbol_table.h"
 #include "scc.h"
+#include "print_syntax.h"
 
 extern int yylineno;
 extern const char *yyfilename;
@@ -61,8 +62,45 @@ static inline union ast_node *maybe_attributes(union ast_node *left, union ast_n
 %token	<node>		F_CONSTANT
 %token	<node>		ENUMERATION_CONSTANT
 %token	<node>		TYPEDEF_NAME
-%token	<node>		GENERIC_NAME
+
+
+/*
+struct Vec<>;			//	struct IDENTIFIER '<' '>' ... `Vec` gets registered as a GENERIC_NAME
+struct Vec<T> {			//	struct GENERIC_NAME '<' IDENTIFIER '>'
+	...
+};
+
+typedef struct Bar<> Bar<int>;			//	struct IDENTIFIER '<' '>' ... `Bar` gets registered as a GENERIC_NAME
+typedef struct Bar<T> Bar<float>;		//	struct GENERIC_NAME '<' IDENTIFIER '>' ... `Bar` gets registered as a GENERIC_NAME
+
+struct Vec<T> {			//	struct IDENTIFIER '<' IDENTIFIER '>' ... `Vec` gets registered as a GENERIC_NAME
+	T *data;
+	int size;
+};
+
+struct Foo<T> {			//	struct IDENTIFIER '<' IDENTIFIER '>'
+	Foo<T> *next;		//	GENERIC_NAME '<' GENERIC_TYPE '>'
+	Vec<T> *vec;		//	GENERIC_NAME '<' GENERIC_TYPE '>'
+	Vec<int> *vec2;		//	GENERIC_NAME '<' GENERIC_TYPE '>' || GENERIC_TYPEDEF_NAME '<' GENERIC_TYPE '>'
+	struct Bar<T> {		//	struct IDENTIFIER '<' IDENTIFIER '>'
+		int x;
+	};
+	int x;
+};
+
+typedef struct Foo<> Foo<int>;			//	GENERIC_NAME '<' GENERIC_TYPEDEF_NAME '>'		...	`Foo<int>` is registered as a TYPEDEF_NAME ... why do we need this? I think we can use `typedef` like this: `typedef Foo<int> MyFooType;`
+
+typedef struct Foo<int> MyFoo;
+typedef Foo<int> MyFoo;
+
+typedef struct Foo<int> Foo<int>;		//	GENERIC_NAME '<' GENERIC_TYPEDEF_NAME '>'
+
+typedef Foo<int> FooInt;				//	GENERIC_NAME '<' GENERIC_TYPEDEF_NAME '>'
+
+*/
 %token	<node>		GENERIC_TYPE
+%token	<node>		GENERIC_NAME
+/* %token	<node>		GENERIC_TYPEDEF_NAME */
 
 
 %token	FUNC_NAME
@@ -316,9 +354,13 @@ type_specifier
 %type <node> generic_declaration					//	eg. `Vec3<T>`
 %type <node> generic_specifier						//	eg. `Vec3<float>`
 
+%type <node> generic_id_or_generic_name
+
 //	These are used in the `impl` blocks as the template type placeholders (after declaration!)
 %type <node> generic_type_declaration
 %type <node> generic_type_list
+
+%type <node> generic_specifier_qualifier_list
 
 /* %type <node> generic_struct_or_union_specifier	//	generics */
 %type <node> generic_type_specifiers				//	generics
@@ -576,9 +618,9 @@ type_specifier
 
 translation_unit
 	: %empty
-	{ ast_root = $$ = NULL; }
+	{ root_node = $$ = NULL; }
 	| external_declarations
-	{ ast_root = $$ = $1; }
+	{ root_node = $$ = $1; }
 	;
 
 external_declarations
@@ -598,8 +640,6 @@ external_declaration
 	/* Super C `impl` */
 	| impl_definition
 	{ $$ = $1; }
-	/* | generic_definition
-	{ $$ = $1; } */
 
 	/*
 	| interface_definition
@@ -615,9 +655,9 @@ function_definition
 	: declaration_specifiers declarator declaration_list compound_statement
 	{ $$ = create_function_definition_node($1, $2, $3, $4); }
 	| declaration_specifiers declarator
-	{ symbol_table_push_scope(); }
+		{ symbol_table_push_scope(); }
 		compound_statement
-	{ symbol_table_pop_scope(); $$ = create_function_definition_node($1, $2, NULL, $4); }
+		{ symbol_table_pop_scope(); $$ = create_function_definition_node($1, $2, NULL, $4); }
 	;
 
 /* function_body
@@ -659,80 +699,7 @@ impl_definition
 	{ $$ = create_impl_node($2, NULL, $4); }
 	| IMPL STATIC TYPEDEF_NAME '{' static_impl_body '}'
 	{ $$ = create_static_impl_node($3, NULL, $5); }
-
-	| IMPL GENERIC_NAME '<'
-	{ symbol_table_push_scope(); }
-		generic_id_list '>' '{' impl_body '}'
-	{
-		symbol_table_pop_scope();
-		$$ = create_generic_impl_node(create_generic_declaration_node($2, $5), NULL, $8);
-	}
-	| IMPL STATIC GENERIC_NAME '<'
-	{ symbol_table_push_scope(); }
-		generic_id_list '>' '{' impl_body '}'
-	{
-		symbol_table_pop_scope();
-		$$ = create_generic_static_impl_node(create_generic_declaration_node($3, $6), NULL, $9);
-	}
-
-	| IMPL GENERIC_NAME '<'
-	{ symbol_table_push_scope(); }
-		generic_type_specifiers '>' '{' impl_body '}'
-	{
-		symbol_table_pop_scope();
-		$$ = create_generic_impl_node(create_generic_declaration_node($2, $5), NULL, $8);
-	}
-	| IMPL STATIC GENERIC_NAME '<'
-	{ symbol_table_push_scope(); }
-		generic_type_specifiers '>' '{' impl_body '}'
-	{
-		symbol_table_pop_scope();
-		$$ = create_generic_static_impl_node(create_generic_declaration_node($3, $6), NULL, $9);
-	}
-
-	| IMPL IDENTIFIER GENERIC_NAME '<'
-	{ symbol_table_push_scope(); }
-		generic_id_list '>' '{' impl_body '}'
-	{
-		symbol_table_pop_scope();
-		//	Add the generic node to a special list of generic nodes!
-		$$ = create_generic_impl_node(create_generic_declaration_node(create_list_node($2, $3, " "), $6), NULL, $9);
-	}
-	| IMPL IDENTIFIER GENERIC_NAME '<'
-	{ symbol_table_push_scope(); }
-		generic_type_specifiers '>' generic_body_or_empty
-	{
-		symbol_table_pop_scope();
-		$$ = create_generic_impl_node(create_generic_declaration_node(create_list_node($2, $3, " "), $6), NULL, $8);
-	}
-
-	| IMPL IDENTIFIER '{'
-	{
-		fprintf(stderr, "ERROR: `%s` is not a known typedef name! Please make sure you declare a typedef with this name! eg. `typedef struct %s %s;`\n", $2->id.id, $2->id.id, $2->id.id);
-		exit(EXIT_FAILURE);
-	}
-
-	//	Incorrectly displayed an error when it couldn't read `Vec3<T>` in the body!
-	//	Maybe we can improve this and move the `error` to the body section!
-	/* | IMPL error
-	{
-		fprintf(stderr, "ERROR: Unknown `impl` sequence. `impl` requires a typedef name. eg. `impl MyObject { ... }\n");
-		exit(EXIT_FAILURE);
-	} */
-
-	/*
-	| STATIC IMPL TYPEDEF_NAME '{' static_impl_body '}'	//	Introduces 4 extra shift/reduce conflicts! From 67 to 71!
-	{ $$ = create_static_impl_node($3, $5); }
-	*/
 	;
-
-
-	/* : %empty { $$ = NULL; } */
-generic_body_or_empty
-	: ';' { $$ = NULL; }
-	| '{' impl_body '}' { $$ = $2; }
-	;
-
 
 impl_body
 	: %empty { $$ = NULL; }
@@ -857,9 +824,9 @@ impl_direct_declarator
 	{ $$ = create_function_declarator_node($1, $3, NULL); }
 	*/
 	| IDENTIFIER '(' parameter_type_list ')' CONST
-	{ $$ = create_function_declarator_node($1, $3, (void *) & const_node); }
+	{ $$ = create_function_declarator_node($1, $3, CONST_NODE); }
 	| IDENTIFIER '(' ')' CONST
-	{ $$ = create_function_declarator_node($1, NULL, (void *) & const_node); }
+	{ $$ = create_function_declarator_node($1, NULL, CONST_NODE); }
 	;
 
 /*
@@ -878,8 +845,8 @@ impl_first_id
 //	;
 
 this_or_self
-	: THIS { $$ = (void *) & this_node; }
-	| SELF { $$ = (void *) & self_node; }
+	: THIS { $$ = THIS_NODE; }
+	| SELF { $$ = SELF_NODE; }
 	;
 
 getters
@@ -910,7 +877,7 @@ getter_direct_declarator
 	: IDENTIFIER '(' ')'
 	{ $$ = create_function_declarator_node($1, NULL, NULL); }
 	| IDENTIFIER '(' ')' CONST
-	{ $$ = create_function_declarator_node($1, NULL, (void *) & const_node); }
+	{ $$ = create_function_declarator_node($1, NULL, CONST_NODE); }
 	;
 
 setters
@@ -1010,10 +977,10 @@ new_function_declarator
 delete_function_definition
 	: declaration_specifiers delete_function_declarator compound_statement
 	{ $$ = create_delete_function_definition_node($1, $2, $3); }
-	/* { $$ = create_delete_function_definition_node((void *) & void_node, $2, $3); } */
+	/* { $$ = create_delete_function_definition_node(VOID_NODE, $2, $3); } */
 	| declaration_specifiers delete_function_declarator ';'
 	{ $$ = create_delete_function_definition_node($1, $2, NULL); }
-	/* { $$ = create_delete_function_definition_node((void *) & void_node, $2, NULL); } */
+	/* { $$ = create_delete_function_definition_node(VOID_NODE, $2, NULL); } */
 	| declaration_specifiers delete_function_declarator FAT_ARROW expression ';'
 	{ $$ = create_delete_function_definition_node($1, $2, create_block_node(create_return_node($4))); }
 	;
@@ -1356,27 +1323,6 @@ primary_expression
 	| generic_selection
 	{ $$ = $1; }
 
-	/* | GENERIC_NAME '<' GENERIC_TYPE '>'
-	{ $$ = NULL; } */
-	/* { $$ = create_generic_name_node($2); }*/
-
-
-	//	This is used in the `new` method for example, to declare a new variable:
-	//	eg. `Vec3<T> *v = (Vec3<T> *) malloc(sizeof(Vec3<T>));
-	/* | generic_type_declaration
-	{ $$ = $1; } */
-
-
-/* generic_declaration
-	: IDENTIFIER '<'
-	{ symbol_table_push_scope(); }
-		generic_id_list '>'
-	{ $$ = create_generic_declaration_node($1, $4); }
-	; */
-
-
-
-
 
 	//
 	//	Super C extensions
@@ -1385,12 +1331,6 @@ primary_expression
 	//	NOTE: We need to add this here, so we can support statements like this: "return this;", or even sending "this" or "self" in the parameter list!
 	| this_or_self
 	{ $$ = $1; }
-	/*
-	| THIS
-	{ $$ = $1; }
-	| SELF
-	{ $$ = $1; }
-	*/
 
 	/*
 	| NEW STRUCT IDENTIFIER
@@ -1408,30 +1348,11 @@ primary_expression
 	| TYPEDEF_NAME namespace_operator IDENTIFIER
 	{ $$ = create_binary_node(AST_NS_OP, $1, $3); }
 
-
-	//	eg. `new Vec3<float>()` ==> `Vec3__float__new()`
-	| NEW generic_specifier
-	{
-		$$ = create_id_node(get_generic_func_name(GENERIC_FUNC_NEW, $2, (void *) & new_as_id_node));
-	}
-
-
-	/*
-	| IDENTIFIER namespace_operator
-	{
-		//	ERROR! The `namespace_operator` ('.' or '::') can only be used with a valid `TYPEDEF_NAME`!
-		fprintf(stderr, "ERROR: The `namespace_operator` ('.' or '::') can only be used with a valid `TYPEDEF_NAME`!\n");
-		exit(EXIT_FAILURE);
-	}
-	*/
 	| NEW
 	{ $$ = (void *) & new_as_id_node; }
 
-
-
 	| delete_expression
 	{ $$ = $1; }
-
 
 	| __asm__specifier
 	{ $$ = $1; }
@@ -1553,17 +1474,6 @@ declaration_specifiers
 	| type_specifier
 	{ $$ = $1; }
 
-
-	//	Needed for things like method input params.
-	//	eg. new(T x, T y, T z)
-	/* | GENERIC_TYPE declaration_specifiers
-	{ $$ = create_list_node($1, $2, " "); }
-	| GENERIC_TYPE
-	{ $$ = $1; } */
-
-
-
-
 	| type_qualifier declaration_specifiers
 	{ $$ = create_list_node($1, $2, " "); }
 	| type_qualifier
@@ -1578,11 +1488,6 @@ declaration_specifiers
 	{ $$ = create_list_node($1, $2, " "); }
 	| alignment_specifier
 	{ $$ = $1; }
-
-	/* | generic_specifier declaration_specifiers
-	{ $$ = create_list_node($1, $2, " "); }
-	| generic_specifier
-	{ $$ = $1; } */
 	;
 
 init_declarator_list
@@ -1643,7 +1548,7 @@ attribute
 
 storage_class_specifier
 	: maybe_attributes TYPEDEF	/* identifiers must be flagged as TYPEDEF_NAME */
-	{ $$ = maybe_attributes($1, (void *) & typedef_node); }
+	{ $$ = maybe_attributes($1, TYPEDEF_NODE); }
 	/* : extension_specifier TYPEDEF
 	{ $$ = create_list_node($1, typedef_node, " "); }
 	| extension_specifier EXTERN
@@ -1651,17 +1556,17 @@ storage_class_specifier
 	| extension_specifier STATIC
 	{ $$ = create_list_node($1, static_node, " "); } */
 	| maybe_attributes EXTERN
-	{ $$ = maybe_attributes($1, (void *) & extern_node); }
+	{ $$ = maybe_attributes($1, EXTERN_NODE); }
 	/* | extension_specifier STATIC
 	{ $$ = create_list_node($1, static_node, " "); } */
 	| maybe_attributes STATIC
-	{ $$ = maybe_attributes($1, (void *) & static_node); }
+	{ $$ = maybe_attributes($1, STATIC_NODE); }
 	| maybe_attributes THREAD_LOCAL
-	{ $$ = maybe_attributes($1, (void *) & thread_local_node); }
+	{ $$ = maybe_attributes($1, THREAD_LOCAL_NODE); }
 	| maybe_attributes AUTO
-	{ $$ = maybe_attributes($1, (void *) & auto_node); }
+	{ $$ = maybe_attributes($1, AUTO_NODE); }
 	| maybe_attributes REGISTER
-	{ $$ = maybe_attributes($1, (void *) & register_node); }
+	{ $$ = maybe_attributes($1, REGISTER_NODE); }
 
 	/* GCC "__extension__" */
 	/* | __EXTENSION__
@@ -1672,29 +1577,29 @@ storage_class_specifier
 
 type_specifier
 	: maybe_attributes VOID
-	{ $$ = maybe_attributes($1, (void *) & void_node); }
+	{ $$ = maybe_attributes($1, VOID_NODE); }
 	| maybe_attributes CHAR
-	{ $$ = maybe_attributes($1, (void *) & char_node); }
+	{ $$ = maybe_attributes($1, CHAR_NODE); }
 	| maybe_attributes SHORT
-	{ $$ = maybe_attributes($1, (void *) & short_node); }
+	{ $$ = maybe_attributes($1, SHORT_NODE); }
 	| maybe_attributes INT
-	{ $$ = maybe_attributes($1, (void *) & int_node); }
+	{ $$ = maybe_attributes($1, INT_NODE); }
 	| maybe_attributes LONG
-	{ $$ = maybe_attributes($1, (void *) & long_node); }
+	{ $$ = maybe_attributes($1, LONG_NODE); }
 	| maybe_attributes FLOAT
-	{ $$ = maybe_attributes($1, (void *) & float_node); }
+	{ $$ = maybe_attributes($1, FLOAT_NODE); }
 	| maybe_attributes DOUBLE
-	{ $$ = maybe_attributes($1, (void *) & double_node); }
+	{ $$ = maybe_attributes($1, DOUBLE_NODE); }
 	| maybe_attributes SIGNED
-	{ $$ = maybe_attributes($1, (void *) & signed_node); }
+	{ $$ = maybe_attributes($1, SIGNED_NODE); }
 	| maybe_attributes UNSIGNED
-	{ $$ = maybe_attributes($1, (void *) & unsigned_node); }
+	{ $$ = maybe_attributes($1, UNSIGNED_NODE); }
 	| maybe_attributes BOOL
-	{ $$ = maybe_attributes($1, (void *) & bool_node); }
+	{ $$ = maybe_attributes($1, BOOL_NODE); }
 	| maybe_attributes COMPLEX
-	{ $$ = maybe_attributes($1, (void *) & complex_node); }
+	{ $$ = maybe_attributes($1, COMPLEX_NODE); }
 	| maybe_attributes IMAGINARY	  	/* non-mandated extension */
-	{ $$ = maybe_attributes($1, (void *) & imaginary_node); }
+	{ $$ = maybe_attributes($1, IMAGINARY_NODE); }
 	| maybe_attributes atomic_type_specifier
 	{ $$ = maybe_attributes($1, $2); }
 	| maybe_attributes struct_or_union_specifier
@@ -1705,31 +1610,15 @@ type_specifier
 	{ $$ = maybe_attributes($1, $2); }
 
 
+	//	NOTE: I don't think the next comment is true anymore, but I'm leaving it here for now.
 	//	NOTE: I'm moving this out of here, because it was causing a shift/reduce ambiguity!
 	//	The ambiguity occured usually when you had a `struct` with an inner `struct` using the generic name.
 	//	However, this began when I added abilities for opaque generics, and I had to add `type_specifier` to one of the generic lists
 	| maybe_attributes GENERIC_TYPE
 	{ $$ = maybe_attributes($1, $2); }
-	
-
-
-	/* | GENERIC_NAME '<' type_specifier '>'
-	{ $$ = $1; } */
 
 	| generic_specifier
 	{ $$ = $1; }
-
-	/* | GENERIC_NAME '<' type_specifier '>'
-	{ $$ = $1; } */
-
-	//
-	/* 		
-	| maybe_attributes generic_type_declaration   //	GENERIC_NAME '<' generic_type '>'
-	{ $$ = maybe_attributes($1, $2); }
-	*/
-
-
-
 
 	/* GCC extensions */
 
@@ -1744,27 +1633,27 @@ type_specifier
 	{ $$ = $1; } */
 
 	| maybe_attributes __BUILTIN_VA_LIST
-	{ $$ = maybe_attributes($1, (void *) & builtin_va_list_node); }
+	{ $$ = maybe_attributes($1, BUILTIN_VA_LIST_NODE); }
 
 	/* https://android.googlesource.com/toolchain/gcc/+/donut/gcc-4.2.1/gcc/c-parser.c */
 	| maybe_attributes _DECIMAL32
-	{ $$ = maybe_attributes($1, (void *) & ___decimal32_node); }
+	{ $$ = maybe_attributes($1, DECIMAL32_NODE); }
 	| maybe_attributes _DECIMAL64
-	{ $$ = maybe_attributes($1, (void *) & ___decimal64_node); }
+	{ $$ = maybe_attributes($1, DECIMAL64_NODE); }
 	| maybe_attributes _DECIMAL128
-	{ $$ = maybe_attributes($1, (void *) & ___decimal128_node); }
+	{ $$ = maybe_attributes($1, DECIMAL128_NODE); }
 
 	| maybe_attributes _FLOAT128
-	{ $$ = maybe_attributes($1, (void *) & ___float128_node); }
+	{ $$ = maybe_attributes($1, FLOAT128_NODE); }
 	| maybe_attributes __INT128
-	{ $$ = maybe_attributes($1, (void *) & ___int128_node); }
+	{ $$ = maybe_attributes($1, INT128_NODE); }
 	| maybe_attributes __INT128_T
-	{ $$ = maybe_attributes($1, (void *) & ___int128_t_node); }
+	{ $$ = maybe_attributes($1, INT128_T_NODE); }
 	| maybe_attributes __UINT128_T
-	{ $$ = maybe_attributes($1, (void *) & ___uint128_t_node); }
+	{ $$ = maybe_attributes($1, UINT128_T_NODE); }
 
 	| maybe_attributes _BITINT128
-	{ $$ = maybe_attributes($1, (void *) & ___bitint128_node); }
+	{ $$ = maybe_attributes($1, BITINT128_NODE); }
 	| maybe_attributes _BITINT
 	{ $$ = maybe_attributes($1, $2); }
 	;
@@ -1776,149 +1665,44 @@ struct_or_union_specifier
 	{ $$ = create_struct_or_union_node($1, NULL, NULL); }
 	| struct_or_union '{' struct_declaration_list '}' /* maybe_postfix_attributes */
 	{ $$ = create_struct_or_union_node($1, NULL, $3); }
-	//{ $$ = create_struct_or_union_node($1, NULL, $3); $$ = $5 == NULL ? $$ : create_list_node($$, $5, " "); }
-	/* : extension_specifier struct_or_union '{' struct_declaration_list '}'
-	{ $$ = create_struct_or_union_node($2, NULL, $4); $$ = create_list_node($1, $$, " "); }
-	| extension_specifier struct_or_union IDENTIFIER '{' struct_declaration_list '}'
-	{ $$ = create_struct_or_union_node($2, $3, $5); $$ = create_list_node($1, $$, " "); } */
 	| struct_or_union identifier '{' '}'
 	{ $$ = create_struct_or_union_node($1, $2, NULL); }
 	| struct_or_union identifier '{' struct_declaration_list '}' /* maybe_postfix_attributes */
 	{ $$ = create_struct_or_union_node($1, $2, $4); }
-	//{ $$ = create_struct_or_union_node($1, $2, $4); $$ = $6 == NULL ? $$ : create_list_node($$, $6, " "); }
 	| struct_or_union identifier
 	{ $$ = create_struct_or_union_node($1, $2, NULL); }
-
-/*
-generic_struct_or_union_specifier
-*/
-
-
-	/* //	Used to support `opaque` generic structs/unions.
-	//	Declared like this: `typedef struct generic<> generic<float>;`
-	| struct_or_union IDENTIFIER '<' generic_id_list '>'// IDENTIFIER '<' generic_type_specifiers '>'
-	{
-		// union ast_node *specifier = create_generic_specifier_node($5, $7);
-		// const char *name = get_generic_type_name(specifier);
-
-		// $$ = specifier;
-
-// printf("HERE  ** * * * * * * * * * ** * * * * ** ** * * * ** * * * * * *\n");
-
-		$$ = create_struct_or_union_node($1 == AST_STRUCT ? AST_GENERIC_STRUCT : AST_GENERIC_UNION, $2, NULL);
-		symbol_add_generic_name($2->id.id, NULL);
-					// symbol_update_generic_name(get_id_node($2)->id.id, $$);
-	}
-	| struct_or_union GENERIC_NAME '<' '>' GENERIC_NAME '<' generic_type_specifiers '>'
-	{
-		union ast_node *specifier = create_generic_specifier_node($5, $7);
-
-		$$ = specifier;
-
-		// $$ = create_struct_or_union_node($1 == AST_STRUCT ? AST_GENERIC_STRUCT : AST_GENERIC_UNION, specifier, NULL);
-					// symbol_add_generic_name($2->id.id, $$);
-					// symbol_update_generic_name(get_id_node($2)->id.id, $$);
-	} */
-
-
-
 
 	| struct_or_union generic_declaration '{' struct_declaration_list '}'
 	{
 		symbol_table_pop_scope();
 		$$ = create_struct_or_union_node($1 == AST_STRUCT ? AST_GENERIC_STRUCT : AST_GENERIC_UNION, $2, $4);
-		symbol_update_generic_name(get_id_node($2)->id.id, $$);
+		// symbol_update_generic(get_id_node($2)->id.id, $$);
 	}
-	//	Allows for an 'opaque' generic struct/union. ... really? Isn't there another use case? Because `opaque generic pointers` should be supported below!
 	| struct_or_union generic_declaration
 	{
 		symbol_table_pop_scope();
 		$$ = create_struct_or_union_node($1 == AST_STRUCT ? AST_GENERIC_STRUCT : AST_GENERIC_UNION, $2, NULL);
-		symbol_add_generic_name(get_id_node($2)->id.id, NULL);
-		// symbol_update_generic_name(get_id_node($2)->id.id, $$);
+		// symbol_add_generic_name(get_id_node($2)->id.id, NULL);
 	}
-
-
-/*
-	//	NOTE: This was the main rule for `opaque` generics structs/unions, but it caused major ambiguity issues!
-
-
-Ambiguity detected.
-Option 1,
-  generic_id_or_type_specifiers -> <Rule 274, tokens 118 .. 118>
-    generic_type_specifiers -> <Rule 280, tokens 118 .. 118>
-      type_name -> <Rule 363, tokens 118 .. 118>
-        specifier_qualifier_list -> <Rule 294, tokens 118 .. 118>
-          type_specifier -> <Rule 246, tokens 118 .. 118>
-            maybe_attributes -> <Rule 219, empty>
-            GENERIC_TYPE <tokens 118 .. 118>
-
-Option 2,
-  generic_id_or_type_specifiers -> <Rule 273, tokens 118 .. 118>
-    generic_id_or_type_list -> <Rule 275, tokens 118 .. 118>
-      GENERIC_TYPE <tokens 118 .. 118>
-
-./examples/generics3.c:33: syntax is ambiguous
-    32 |        struct Vector
->   33 |                <T>
-    34 |                vec;
-
-
-*/
-
-	| struct_or_union generic_id_or_type_declaration
-	{
-		symbol_table_pop_scope();
-		$$ = create_struct_or_union_node($1 == AST_STRUCT ? AST_GENERIC_STRUCT : AST_GENERIC_UNION, $2, NULL);
-		// symbol_add_generic_name(get_id_node($2)->id.id, $$);
-	}
-	| struct_or_union generic_id_or_type_declaration '{' struct_declaration_list '}'
-	{
-		symbol_table_pop_scope();
-		$$ = create_struct_or_union_node($1 == AST_STRUCT ? AST_GENERIC_STRUCT : AST_GENERIC_UNION, $2, $4);
-		// symbol_add_generic_name(get_id_node($2)->id.id, $$);
-	}
-
-
-
-
-	//	NOTE: We no longer need the rule below, because we don't declare the typedef like this anymore:
-	//	eg. typedef struct Vec3<T> Vec3<float>;
-	//	Instead we declare it like this:
-	//	eg. typedef Vec3<float>;
-
-	//	This is used when we are defining our final typedef with the 'concrete' type
-	//	eg. typedef struct Vec3<T> Vec3<float>;
-	//	Where the `struct Vec3<T>` was already previously defined! We will get a `GENERIC_NAME` back from the lexer!
 	/*
-	| struct_or_union GENERIC_NAME '<'
-	{ symbol_table_push_scope(); }
-		generic_id_list '>'
+	| struct_or_union IDENTIFIER '<' error '>'
 	{
-		symbol_table_pop_scope();
-		//union ast_node *generic_node = create_generic_name_node($2, $4);
-		$$ = create_struct_or_union_node($1 == AST_STRUCT ? AST_GENERIC_STRUCT : AST_GENERIC_UNION, $2, $5, NULL);
+		fprintf(stderr, "Generic type names eg. `<T>` cannot be used with a `struct`, remove the `struct` and try again!\n");
+		exit(1);
 	}
 	*/
 	;
 
-
-
-//	NOTE: This can specifically ONLY be used after a `struct` or `union`!
-//	Also, this could also be a 'local' or internal `struct` or `union` declaration!
-//	Actually, if this is an internal struct declaration, then it cannot have it's own `generic_id_list`, because any id's registered are clearly not part of the parent (outer struct scope), which is an issue!
-//	On second thought, why would you declare a NEW internal generic type, that you cannot extend the parent ID's? You basically can't, so you might as well just make it a normal struct!!!
 generic_declaration
-	: IDENTIFIER '<'
-		{
-			//	We need to add the generic name to the outer scope, so that we can potentially reference it internally!
-			//	eg. a linked list node that refers to itself! It can't be registered twice!
-			//	Once we exit the scope, the symbol will be updated with the complete node!
-			symbol_add_generic_name($1->id.id, NULL);
-			symbol_table_push_scope();
-		}
-		generic_id_list '>'
-		{ $$ = create_generic_declaration_node($1, $4); }
+	: generic_id_or_generic_name '<' { symbol_table_push_scope(); } generic_id_list '>'
+	{ $$ = create_generic_declaration_node($1, $4, yyfilename, yylineno); }
+	;
+
+generic_id_or_generic_name
+	: IDENTIFIER
+	{ $$ = $1; symbol_add_generic($1->id.id, NULL); }
+	| GENERIC_NAME
+	{ $$ = $1; }
 	;
 
 generic_id_list
@@ -1928,101 +1712,68 @@ generic_id_list
 	{ $$ = $1; symbol_add_generic_type($1->id.id, $1); }
 	| generic_id_list ',' IDENTIFIER
 	{ $$ = create_generic_list_node($1, $3); symbol_add_generic_type($3->id.id, $3); }
-	;
 
-//	EXPERIMENTAL!
-//	Used in structures where we 'embed' other generics!
-generic_id_or_type_declaration
-	: GENERIC_NAME '<'
-		{ symbol_table_push_scope(); }
-		generic_id_or_type_specifiers '>'
-		/* { $$ = $4; $$->generic_type.id = $1; }		//	Why is this a declaration? I think it's beneficial, because we can differentiate between certain generic types! */
-		{ $$ = create_generic_declaration_node($1, $4); }		//	Why is this a declaration? I think it's beneficial, because we can differentiate between certain generic types!
-	;
-
-generic_id_or_type_specifiers
-	: generic_id_list
+	// NOTE: This is already included in `specifier_qualifier_list`
+	/*
+	| GENERIC_TYPE
 	{ $$ = $1; }
-	| generic_type_specifiers
-	{ $$ = $1; }
-	;
-
-generic_id_or_type_list
-	/* : IDENTIFIER
-	{ $$ = $1; symbol_add_generic_type($1->id.id, $1); }
-	| generic_id_or_type_list ',' IDENTIFIER
-	{ $$ = create_generic_list_node($1, $3); symbol_add_generic_type($3->id.id, $3); } */
-
-	//	This was added, to support `linked list` style nodes, where we refer back to the same type:
-	//	eg. `struct Node<T> { T data; struct Node<T> *next; };`
-	//	Where the `<T>` is already defined in the `struct Node<T>`!
-	//	This is also required, if we have a generic internally, the refers to another external generic.
-	: GENERIC_TYPE
-	{ $$ = $1; }
-	| generic_id_or_type_list ',' GENERIC_TYPE
+	| generic_id_list ',' GENERIC_TYPE
 	{ $$ = create_generic_list_node($1, $3); }
-	//	This was added to support generic `opaque pointers`. eg. `typedef struct Foo<T> Foo<float>;` ... because the <T> will be an identifier, but the Foo part in Foo<T> will be a GENERIC_NAME!
+	*/
+
+	// From 68 to 70 shift/reduce conflicts!
+	| specifier_qualifier_list
+	{ $$ = $1; }
+	| generic_id_list ',' specifier_qualifier_list
+	{ $$ = create_generic_list_node($1, $3); }
+	;
+
+generic_specifier
+	: GENERIC_NAME '<' generic_specifier_qualifier_list '>'
+	{ $$ = create_generic_specifier_node($1, $3, yyfilename, yylineno); }
+	;
+
+generic_specifier_qualifier_list
+	: specifier_qualifier_list
+	{ $$ = $1; }
+	| generic_specifier_qualifier_list ',' specifier_qualifier_list
+	{ $$ = create_generic_list_node($1, $3); }
 	| IDENTIFIER
-	{ $$ = $1; symbol_add_generic_type($1->id.id, $1); }
-	| generic_id_or_type_list ',' IDENTIFIER
-	{ $$ = create_generic_list_node($1, $3); symbol_add_generic_type($3->id.id, $3); }
-	;
-
-//	This is used for example in the `new` method, to declare a new variable:
-//	eg. `Vec3<T> *v = (Vec3<T> *) malloc(sizeof(Vec3<T>));`
-generic_type_declaration
-	: GENERIC_NAME '<' generic_type_list '>'
-	{ $$ = create_generic_declaration_node($1, $3); }
-	;
-
-/* generic_type_list
-	: GENERIC_TYPE
-	{ $$ = $1; }
-	| generic_type_list ',' GENERIC_TYPE
-	{ $$ = create_list_node($1, $3, ", "); }
-	; */
-generic_type_list
-	: type_specifier
-	{ $$ = $1; }
-	| generic_type_list ',' type_specifier
-	{ $$ = create_generic_list_node($1, $3); }
-	;
-
-
-
+	{
+		char buf[512];
+		snprintf(buf, 512,
+			"Syntax error: unexpected token `%s` on line %d.\n"
+			"> Only concrete types or pre-defined generic types within a generic struct allowed.\n"
+			"> Are you trying to declare a generic typedef with `typedef struct Foo<> Foo<%s>;`\n"
+			"> Or are you trying to declare a variable with a generic typename `Foo<%s> foo;` outside a generic struct?\n"
+			"> You cannot declare a generic typedef or variable this way,"
+			" as the <%s> is not valid outside a generic struct or `impl` block!",
+			$1->id.id,
+			yylineno,
+			$1->id.id,
+			$1->id.id,
+			$1->id.id);
+		yyerror(buf);
+		// fprintf(stderr, "Syntax error: unexpected token %s at line %d\n", $1->id.id, @1.first_line);
+		YYERROR;
+	}
+	/*
+	| error
+	{
+		$$ = NULL;
+	}
+	*/
 /*
-generic_specifier
-	: GENERIC_NAME '<'
-	{ symbol_table_push_scope(); }
-		generic_id_list '>'
-	{ $$ = create_generic_specifier_node($1, $3); }
-	;
+	| GENERIC_TYPE
+	{ $$ = $1; }
+	| generic_specifier_qualifier_list ',' GENERIC_TYPE
+	{ $$ = create_generic_list_node($1, $3); }
 */
-
-generic_specifier
-	: GENERIC_NAME '<' generic_type_specifiers '>'
-	{ $$ = create_generic_declaration_node($1, $3); }
 	;
 
 
-/*
-generic_type_specifiers
-	: type_specifier
-	{ $$ = $1; }
-	| generic_type_specifiers ',' type_specifier
-	{ $$ = create_generic_list_node($1, $3); }
-	;
-*/
-generic_type_specifiers
-	: type_name
-	{ $$ = $1; }
-	| generic_type_specifiers ',' type_name
-	{ $$ = create_generic_list_node($1, $3); }
-	| I_CONSTANT
-	{ $$ = $1; }
-	| generic_type_specifiers ',' I_CONSTANT
-	{ $$ = create_generic_list_node($1, $3); }
-	;
+
+
 
 
 
@@ -2051,28 +1802,6 @@ struct_declaration
 	{ $$ = create_struct_or_union_declaration_node(maybe_attributes($1, $2), NULL); }
 	| specifier_qualifier_list struct_declarator_list ';'
 	{ $$ = create_struct_or_union_declaration_node($1, $2); }
-	/* | extension_specifier specifier_qualifier_list ';'
-	{ $$ = create_struct_or_union_declaration_node($2, NULL); $$ = create_list_node($1, $$, " "); }
-	| extension_specifier specifier_qualifier_list struct_declarator_list ';'
-	{ $$ = create_struct_or_union_declaration_node($2, $3); $$ = create_list_node($1, $$, " "); } */
-
-	/* | STRUCT IDENTIFIER '<' generic_type_list '>'
-	{ $$ = create_generic_declaration_node($2, $4); }
-	/* | STRUCT GENERIC_TYPE '<' generic_id_or_type_list '>'
-	{ $$ = create_generic_declaration_node($2, $4); }
-	| STRUCT generic_type_declaration struct_declarator_list ';'
-	{ $$ = $2; } */
-
-
-	/* | GENERIC_TYPE struct_declarator_list ';'
-	{ $$ = create_struct_or_union_declaration_node($1, $2); }
-	| CONST GENERIC_TYPE struct_declarator_list ';'
-	{ $$ = create_struct_or_union_declaration_node($2, $3); }
-	| GENERIC_TYPE CONST struct_declarator_list ';'
-	{ $$ = create_struct_or_union_declaration_node($1, $3); } */
-
-
-
 	| static_assert_declaration
 	{ $$ = $1; }
 	;
@@ -2083,42 +1812,10 @@ specifier_qualifier_list
 	| type_specifier
 	{ $$ = $1; }
 
-
-
-
-
-
-	/* | generic_declaration specifier_qualifier_list
-	{ $$ = create_list_node($1, $2, " "); }
-	| generic_declaration
-	{ $$ = $1; }
-
-	| GENERIC_NAME '<' generic_type_list '>'
-	{ $$ = create_generic_declaration_node($1, $3); } */
-
-
-
-
-
-
-
-
-	/*
-	//	For generics ... can't we improve this? Feels like a hack!
-	//	eg. T x; ... is a double IDENTIFIER
-	| IDENTIFIER IDENTIFIER
-	{ $$ = create_list_node($1, $2, " "); }
-	| '<' generic_type_list '>'
-	{ $$ = create_list_node($1, create_list_node($2, $3, ""), $4); }
-	{ $$ = create_list_node($1, create_list_node($2, $3, " "), " "); }
-	*/
-
-
 	| extension_specifier type_specifier specifier_qualifier_list
 	{ $$ = create_list_node($1, create_list_node($2, $3, " "), " "); }
 	| extension_specifier type_specifier
 	{ $$ = create_list_node($1, $2, " "); }
-
 
 	| type_qualifier specifier_qualifier_list
 	{ $$ = create_list_node($1, $2, " "); }
@@ -2187,19 +1884,19 @@ atomic_type_specifier
 	;
 
 type_qualifier
-	: CONST      { $$ = (void *) & const_node; }
-	| RESTRICT   { $$ = (void *) & restrict_node; }
-	| __RESTRICT { $$ = (void *) & ___restrict_node; }
-	| VOLATILE   { $$ = (void *) & volatile_node; }
-	| ATOMIC     { $$ = (void *) & atomic_node; }
+	: CONST      { $$ = CONST_NODE; }
+	| RESTRICT   { $$ = RESTRICT_NODE; }
+	| __RESTRICT { $$ = _RESTRICT_NODE; }
+	| VOLATILE   { $$ = VOLATILE_NODE; }
+	| ATOMIC     { $$ = ATOMIC_NODE; }
 	;
 
 function_specifier
-	: INLINE        { $$ = (void *) & inline_node; }
-	| NORETURN      { $$ = (void *) & noreturn_node; }
+	: INLINE        { $$ = INLINE_NODE; }
+	| NORETURN      { $$ = NORETURN_NODE; }
 	/* GCC __inline and __inline__ extensions */
-	| __INLINE      { $$ = (void *) & ___inline_node; }
-	| __INLINE__    { $$ = (void *) & ___inline__node; }
+	| __INLINE      { $$ = ___INLINE_NODE; }
+	| __INLINE__    { $$ = ___INLINE___NODE; }
 	;
 
 alignment_specifier
@@ -2245,23 +1942,6 @@ direct_declarator
 	{ $$ = create_array_node($1, NULL, $3); }
 
 
-	//	NOTE: I could also have put this in `primary_expression`! ... But it increases the collisions!
-	| direct_declarator '[' GENERIC_TYPE ']'		//	Used in `struct` declarations, where we declare an array member as GENERIC_TYPE placeholder! eg. `T v[N];`
-	{ $$ = create_array_node($1, NULL, $3); }
-	//	This was the original version in `primary_expression`, but I moved the GENERIC_TYPE out!
-	//	| GENERIC_TYPE
-	//	{ $$ = $1; /*create_generic_type_node($1); */ }
-
-
-
-	/* | extension_specifier direct_declarator '(' parameter_type_list ')'
-	{ $$ = create_function_declarator_node($2, $4, NULL); $$ = create_list_node($1, $$, " "); }
-	| extension_specifier direct_declarator '(' ')'
-	{ $$ = create_function_declarator_node($2, NULL, NULL); $$ = create_list_node($1, $$, " "); }
-	| extension_specifier direct_declarator '(' identifier_list ')'
-	{ $$ = create_function_declarator_node($2, NULL, $4); $$ = create_list_node($1, $$, " "); } */
-
-
 	| direct_declarator '(' parameter_type_list ')'
 	{ $$ = create_function_declarator_node($1, $3, NULL); }
 	| direct_declarator '(' ')'
@@ -2281,7 +1961,7 @@ direct_declarator
 
 
 extension_specifier
-	: __EXTENSION__ { $$ = (void *) & ___extension___node; }
+	: __EXTENSION__ { $$ = ___EXTENSION___NODE; }
 	;
 
 
@@ -2299,7 +1979,7 @@ pointer
 	| '*' pointer
 	{ $$ = create_pointer_node(NULL, $2); }
 	| '*'
-	{ $$ = (void *) & pointer_node; }
+	{ $$ = POINTER_NODE; }
 	;
 
 type_qualifier_list
@@ -2311,7 +1991,7 @@ type_qualifier_list
 
 parameter_type_list
 	: parameter_list ',' ELLIPSIS
-	{ $$ = create_list_node($1, (void *) & ellipsis_node, ", "); }
+	{ $$ = create_list_node($1, ELLIPSIS_NODE, ", "); }
 	| parameter_list
 	{ $$ = $1; }
 	;
@@ -2469,9 +2149,9 @@ static_assert_declaration
 statement
 	: labeled_statement    { $$ = $1; }
 	|
-	{ symbol_table_push_scope(); }
+		{ symbol_table_push_scope(); }
 		compound_statement
-	{ symbol_table_pop_scope(); $$ = $2; }
+		{ symbol_table_pop_scope(); $$ = $2; }
 	| expression_statement { $$ = $1; }
 	| selection_statement  { $$ = $1; }
 	| iteration_statement  { $$ = $1; }
@@ -2549,9 +2229,9 @@ iteration_statement
 
 jump_statement
 	: GOTO IDENTIFIER ';'   { $$ = create_goto_node($2); }
-	| CONTINUE ';'          { $$ = (void *) & continue_node; }
-	| BREAK ';'             { $$ = (void *) & break_node; }
-	| RETURN ';'            { $$ = (void *) & return_node; }
+	| CONTINUE ';'          { $$ = CONTINUE_NODE; }
+	| BREAK ';'             { $$ = BREAK_NODE; }
+	| RETURN ';'            { $$ = RETURN_NODE; }
 	| RETURN expression ';' { $$ = create_return_node($2); }
 	;
 
@@ -2572,6 +2252,10 @@ jump_statement
 
 void yyerror(const char *s)
 {
+	print_original_syntax(yyfilename, yylineno, s);
+return;
+
+
 	if (yyfilename == NULL || yyfilename[0] == '\0') {
 		fprintf(stderr, "%s on line %d\n", s, yylineno);
 	}

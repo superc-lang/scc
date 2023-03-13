@@ -46,7 +46,7 @@ char command[MAX_COMMAND];
 // static inline void indent(FILE *out, int n);
 
 
-union ast_node *ast_root;
+union ast_node *root_node;
 
 
 struct compiler_flags flags = {
@@ -402,7 +402,7 @@ void write_ast_tree_to_file(const char *filename_no_ext, const char *before_or_a
 			fprintf(stderr, "ERROR: failed to open output file '%s'\n", fn_buf);
 			exit(EXIT_FAILURE);
 		}
-		print_ast_tree(file, ast_root, 0, NULL);
+		print_ast_tree(file, root_node, 0);
 		fclose(file);
 	}
 }
@@ -521,7 +521,7 @@ void transpile_file(const char *filename)
 		free(buffer);
 	}
 
-	write_ast_tree_to_file(filename_no_ext, "before", ast_root);
+	write_ast_tree_to_file(filename_no_ext, "before", root_node);
 
 	//	We at least try to print out the `before` AST tree, even if the parser failed.
 	if (parse_result != 0 || error_count > 0) {
@@ -532,7 +532,7 @@ void transpile_file(const char *filename)
 
 	run_compiler_passes();
 
-	write_ast_tree_to_file(filename_no_ext, "after", ast_root);
+	write_ast_tree_to_file(filename_no_ext, "after", root_node);
 
 
 	snprintf(output_filename, MAX_FILENAME, "%s.i", filename_no_ext);
@@ -541,7 +541,7 @@ void transpile_file(const char *filename)
 		fprintf(stderr, "ERROR: failed to open output file '%s'\n", output_filename);
 		exit(EXIT_FAILURE);
 	}
-	codegen(out, ast_root, 0, NULL);
+	codegen(out, root_node, 0, NULL);
 	fclose(out);
 
 	add_transpiled_file(output_filename);	//	Add filename to final list of files to compile with GCC!
@@ -553,7 +553,7 @@ void transpile_file(const char *filename)
 	// 		fprintf(stderr, "ERROR: failed to open output file '%s'\n", ast_after_filename);
 	// 		exit(EXIT_FAILURE);
 	// 	}
-	// 	print_ast_tree(ast_after, ast_root, 0, NULL);
+	// 	print_ast_tree(ast_after, root_node, 0);
 	// 	fclose(ast_after);
 	// }
 
@@ -664,7 +664,7 @@ int __main__(int argc, char *argv[])
 	//	Write AST tree BEFORE transformation.
 
 	FILE *ast_before = fopen("./output.ast.before.txt", "w+");
-	print_ast_tree(ast_before, ast_root, 0, NULL);
+	print_ast_tree(ast_before, root_node, 0);
 	fclose(ast_before);
 
 	if (parse_result != 0 || error_count > 0) {
@@ -677,13 +677,13 @@ int __main__(int argc, char *argv[])
 	symbol_table_push_scope();		//	Push global scope
 
 	FILE *out = fopen("./output.i", "w+");
-	codegen(out, ast_root, 0, NULL);
+	codegen(out, root_node, 0, NULL);
 	fclose(out);
 
 	//	Write AST tree AFTER transformation.
 
 	FILE *ast_after = fopen("./output.ast.after.txt", "w+");
-	print_ast_tree(ast_after, ast_root, 0, NULL);
+	print_ast_tree(ast_after, root_node, 0);
 	fclose(ast_after);
 
 	// printf("----------------------   Symbol table   ---------------------\n");
@@ -1426,7 +1426,7 @@ printf("NOT FOUND GENERIC SPECIFIER!\n");
 			}
 		}
 
-print_ast_tree(stdout, node, 0, 0);
+print_ast_tree(stdout, node, 0);
 printf("begin register_typedef\n");
 		register_typedef(node->declaration.decl_specs, node->declaration.init_declarator_list);
 printf("being register_declaration\n");
@@ -1495,7 +1495,7 @@ printf("end register_declaration\n");
 
 				//	NOTE: We need to be more specific about the exact node we send to `add_params_to_function_scope`.
 				//	We cannot just send the whole AST_FUNCTION_DECLARATOR, because inside `add_params_to_function_scope` we also check for this because it could be a function pointer ie. callback function!
-//print_ast_tree(stdout, node->function_definition.declarator, 0, 0);
+//print_ast_tree(stdout, node->function_definition.declarator, 0);
 				//add_params_to_function_scope(node->function_definition.declarator->function_declarator.params, node);
 
 				if (node->function_definition.declarator->type == AST_FUNCTION_DECLARATOR) {
@@ -3000,7 +3000,7 @@ printf("AST_GENERIC_DECLARATION: generic_name = %s\n", generic_name);
 	case AST_GENERIC_UNION:
 		assert(node->generic_type.id != NULL);
 		if (node->generic_type.id->type == AST_GENERIC_DECLARATION) {
-			register_generic_struct_or_union(node);
+			register_generic(node);
 			if (parent->type == AST_DECLARATION && parent->declaration.decl_specs == node) {
 				parent->declaration.decl_specs = NULL;
 			}
@@ -3010,7 +3010,7 @@ printf("HERLEJHRELJRHLEJHREJLHR J====================>>>>\n");
 		break;
 
 	case AST_GENERIC_LIST:
-print_ast_tree(stderr, parent, 0, 0);
+print_ast_tree(stderr, parent, 0);
 		fprintf(stderr, "ERROR: AST_GENERIC_LIST detected after expansion! This should never happen!\n");
 		exit(EXIT_FAILURE);
 		// codegen(out, node->generic_list.head, depth, parent);
@@ -3061,7 +3061,7 @@ printf("symbol->is_generic_impl: %d\n", symbol->is_generic_impl);
 
 			build_impl_from_generic(node, symbol->node);
 printf("AST_GENERIC_IMPL ===> AST_GENERIC_DECLARATION ===> codegen()\n");
-print_ast_tree(stdout, node, 0, NULL);
+print_ast_tree(stdout, node, 0);
 			codegen(out, node, depth, parent);
 printf("============================================================\n");
 
@@ -3072,7 +3072,7 @@ printf("============================================================\n");
 
 
 printf("AST_GENERIC_IMPL\n");
-print_ast_tree(stdout, node, 0, NULL);
+print_ast_tree(stdout, node, 0);
 printf("name: %s\n", get_generic_impl_name(node->impl.id));
 		// symbol_add_generic_impl(node, node);
 		break;
@@ -3217,7 +3217,7 @@ printf("symbol->is_generic_impl: %d\n", symbol->is_generic_impl);
 
 			build_impl_from_generic(node, symbol->node);
 printf("AST_GENERIC_IMPL ===> AST_GENERIC_DECLARATION ===> codegen()\n");
-print_ast_tree(stdout, node, 0, NULL);
+print_ast_tree(stdout, node, 0);
 			// _codegen(out, node, 0, parent);
 printf("============================================================\n");
 
@@ -3228,7 +3228,7 @@ printf("============================================================\n");
 
 
 printf("AST_GENERIC_IMPL\n");
-print_ast_tree(stdout, node, 0, NULL);
+print_ast_tree(stdout, node, 0);
 printf("name: %s\n", get_generic_impl_name(node->impl.id));
 		// symbol_add_generic_impl(node, node);
 		break;

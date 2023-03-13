@@ -111,7 +111,6 @@ char *get_generic_impl_name(union ast_node *node);
 char *get_generic_func_name(int func_type, union ast_node *node, union ast_node *type_list);
 
 
-void register_generic_struct_or_union(union ast_node *node);
 
 void build_generic_struct(union ast_node *node);
 void build_impl_from_generic(union ast_node *specifier, union ast_node *declaration);
