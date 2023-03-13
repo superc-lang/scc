@@ -2,30 +2,31 @@
 
 #### Super C is:
 
-* **a strict syntactical superset of standard C**.
-* 'C with classes' *re-imaged*!
-* [transpiled](https://en.wikipedia.org/wiki/Source-to-source_compiler) to standard C.
-* as fast as C. (because it is C)
+* **a superset of standard C**. **
+* 'C with classes' *re-imagined*!
+* [transpiled](https://en.wikipedia.org/wiki/Source-to-source_compiler) to C.
+* as fast as C.
 * more concise than C. (shorter syntax)
-* compiled to machine code by an existing C compiler such as GCC.
-* a passion project that has taken several months and still in active development (as of Feb 2023).
-* C with syntactic sugar (eye candy). **
-* for people that wanted more syntactical options and design flexibility in C; haters be gone!
+* compiled to optimized machine code by an existing C compiler, such as GCC.
+* a passion project several years in the making.
+* more than just syntactic sugar for C.
+* for people that want more syntactical options and design flexibility in C; haters be gone!
 * going to divide opinion on it's value, features, keywords, usage and place in the C community.
 * designed to be incrementally adoptable. ***
 * heavily inspired by Rust and C++; but also influenced by D, C#, Java, Kotlin and JavaScript.
 * "zero cost abstractions" without the BS!
+* designed to make use of; and build on top of the existing C infrastructure (like C compilers).
 * originally based on the C11 standard (and still compatible), but now includes many enhancements.
-* **NEVER** going to add exceptions or a garbage collector! Ever!
-* **NOT** a replacement for C, C++, Rust, Zig or any other mature systems level language.
+* **NOT** (yet) a replacement for C, C++, Rust, Zig or any other mature systems level language.
 * **NOT** designed to replace C, it builds on top of C.
 * **NOT** trying to be a C++ clone! It has a different design philosophy.
-* **NOT** trying to be a *safe* language. If you want memory safety use something else!
-* **NOT** sanctioned by or affiliated to the ISO standards committee or WG14.
+* **NOT** trying to be a *safe* language. If you want memory safety, use something else!
+* **NOT** sanctioned by, or affiliated to the ISO standards committee or WG14.
 * **NOT** affiliated with any big tech company, although I welcome any constructive input.
-* **NOT** a borrow checker (although "opt-in" borrow checking is possible in the future!)
+* **NOT** a borrow checker, although "opt-in" borrow checking is possible in the future!
 * **NOT** trying to dictate or enforce any programming philosophy like OOP on you. Use what makes sense!
 * **NOT** currently suitable for beginners or those that don't have a good understand of C.
+* **NEVER** going to add exceptions or a garbage collector! Ever!
 
 
 ** All valid C programs are valid Super C programs. It's a 100% compatible superset of C, hence the name, Super(set) C.
