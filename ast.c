@@ -5,8 +5,6 @@
 #include <string.h>
 #include <stdio.h>
 
-union ast_node *ast_root;
-
 union ast_node *ast_condition(int type, int condition, union ast_node *left, union ast_node *right)
 {
 	struct ast_condition_node *node = (struct ast_condition_node *) malloc(sizeof(struct ast_condition_node));
@@ -152,6 +150,67 @@ union ast_node *create_struct_or_union_node(int type, union ast_node *id, union 
 	return (union ast_node *) node;
 }
 
+
+
+/*
+struct_or_union_specifier
+	...
+	| struct_or_union identifier '<' generic_type_list '>' '{' struct_declaration_list '}'
+	;
+
+generic_type_list
+	: IDENTIFIER
+	| generic_type_list ',' IDENTIFIER
+	;
+*/
+// union ast_node *create_generic_struct_or_union_node(int type, union ast_node *id, union ast_node *type_list, union ast_node *decl_list)
+// {
+// 	struct ast_generic_struct_or_union_node *node = (struct ast_generic_struct_or_union_node *) malloc(sizeof(struct ast_generic_struct_or_union_node));
+
+// 	node->type = type;
+// 	node->id = id;
+// 	node->type_list = type_list;
+// 	node->decl_list = decl_list;
+
+// 	return (union ast_node *) node;
+// }
+
+
+//	Used by both the AST_GENERIC_DECLARATION (`Vec3<T>`) and AST_GENERIC_SPECIFIER (`Vec3<float>`) node types!
+union ast_node *create_generic_type_node(int type, union ast_node *id, union ast_node *type_list, const char *filename, int line)
+{
+	struct ast_generic_type_node *node = (struct ast_generic_type_node *) malloc(sizeof(struct ast_generic_type_node));
+
+	node->type = type;
+	node->id = id;
+	node->type_list = type_list;
+
+	node->parent = NULL;
+	node->filename = filename;
+	node->line = line;
+
+	return (union ast_node *) node;
+}
+/*
+generic_specifier
+	: IDENTIFIER '<' generic_type_specifiers '>'
+	;
+*/
+//	eg. `struct Vec3<T>`
+union ast_node *create_generic_declaration_node(union ast_node *id, union ast_node *type_list, const char *filename, int line)
+{
+	return create_generic_type_node(AST_GENERIC_DECLARATION, id, type_list, filename, line);
+}
+//	eg. `Vec3<float>`
+union ast_node *create_generic_specifier_node(union ast_node *id, union ast_node *type_list, const char *filename, int line)
+{
+	return create_generic_type_node(AST_GENERIC_SPECIFIER, id, type_list, filename, line);
+}
+
+
+
+
+
 /*
 struct_declaration_list
 	: struct_declaration
@@ -290,7 +349,7 @@ expression_statement
 */
 union ast_node *create_expression_statement_node(union ast_node *expr)
 {
-	struct ast_expression_statement_node *node = (struct ast_expression_statement_node *) malloc(sizeof(struct ast_expression_statement_node));
+	struct ast_unary_node *node = (struct ast_unary_node *) malloc(sizeof(struct ast_unary_node));
 	node->type = AST_EXPRESSION_STATEMENT;
 	node->expr = expr;
 
@@ -545,6 +604,7 @@ union ast_node *create_function_definition_node(union ast_node *decl_specs, unio
 union ast_node *create_list_node(union ast_node *node, union ast_node *next, const char *separator)
 {
 	struct ast_list_node *list = (struct ast_list_node *) malloc(sizeof(struct ast_list_node));
+
 	list->type = AST_LIST;
 	list->node = node;
 	list->next = next;
@@ -552,6 +612,18 @@ union ast_node *create_list_node(union ast_node *node, union ast_node *next, con
 
 	return (union ast_node *) list;
 }
+union ast_node *create_generic_list_node(union ast_node *node, union ast_node *next)
+{
+	struct ast_list_node *list = (struct ast_list_node *) malloc(sizeof(struct ast_list_node));
+
+	list->type = AST_GENERIC_LIST;
+	list->node = node;
+	list->next = next;
+	list->separator = ", ";
+
+	return (union ast_node *) list;
+}
+
 
 
 
@@ -568,6 +640,9 @@ union ast_node *create_declaration_node(union ast_node *decl_specs, union ast_no
 	node->type = AST_DECLARATION;
 	node->decl_specs = decl_specs;
 	node->init_declarator_list = init_declarator_list;
+	node->parent = NULL;
+	node->filename = NULL;
+	node->line = 0;
 
 	return (union ast_node *) node;
 }
@@ -654,7 +729,7 @@ primary_expression
 */
 union ast_node *create_expression_group_node(union ast_node *expr)
 {
-	struct ast_expression_group_node *node = (struct ast_expression_group_node *) malloc(sizeof(struct ast_expression_group_node));
+	struct ast_unary_node *node = (struct ast_unary_node *) malloc(sizeof(struct ast_unary_node));
 	node->type = AST_EXPRESSION_GROUP;
 	node->expr = expr;
 
@@ -781,7 +856,7 @@ union ast_node *create_dynamic_array_node(union ast_node *direct_declarator, uni
 }
 union ast_node *create_static_array_node(union ast_node *direct_declarator, union ast_node *type_qualifier_list, union ast_node *expr)
 {
-	struct ast_static_array_node *node = (struct ast_static_array_node *) malloc(sizeof(struct ast_static_array_node));
+	struct ast_array_node *node = (struct ast_array_node *) malloc(sizeof(struct ast_array_node));
 	node->type = AST_STATIC_ARRAY;
 	node->direct_declarator = direct_declarator;
 	node->type_qualifier_list = type_qualifier_list;
@@ -935,29 +1010,38 @@ union ast_node *create_class_declaration_node(int type, union ast_node *id, unio
 	return (union ast_node *) node;
 }
 
-union ast_node *create_impl_node(union ast_node *id, union ast_node *interface, union ast_node *body)
+union ast_node *create_actual_impl_node(int type, union ast_node *id, union ast_node *interface, union ast_node *body)
 {
 	struct ast_impl_node *node = (struct ast_impl_node *) malloc(sizeof(struct ast_impl_node));
-	node->type = AST_IMPL;
+
+	node->type = type;
 	node->id = id;
 	node->interface = interface;
 	node->body = body;
 
 	return (union ast_node *) node;
 }
-union ast_node *create_static_impl_node(union ast_node *id, union ast_node *body)
-{
-	struct ast_impl_node *node = (struct ast_impl_node *) malloc(sizeof(struct ast_impl_node));
-	node->type = AST_STATIC_IMPL;
-	node->id = id;
-	node->interface = NULL;
-	node->body = body;
 
-	return (union ast_node *) node;
+union ast_node *create_impl_node(union ast_node *id, union ast_node *interface, union ast_node *body)
+{
+	return create_actual_impl_node(AST_IMPL, id, interface, body);
 }
 
+union ast_node *create_static_impl_node(union ast_node *id, union ast_node *interface, union ast_node *body)
+{
+	return create_actual_impl_node(AST_STATIC_IMPL, id, interface, body);
+}
 
-union ast_node *create_static_impl_node(union ast_node *id, union ast_node *body);
+//	Technically, we don't really need a separate 'impl' statement/node type! Because if the `id` node has a `generic` node in it, then it's a generic impl!.
+union ast_node *create_generic_impl_node(union ast_node *id, union ast_node *interface, union ast_node *body)
+{
+	return create_actual_impl_node(AST_GENERIC_IMPL, id, interface, body);
+}
+
+union ast_node *create_generic_static_impl_node(union ast_node *id, union ast_node *interface, union ast_node *body)
+{
+	return create_actual_impl_node(AST_GENERIC_STATIC_IMPL, id, interface, body);
+}
 
 
 
@@ -1035,6 +1119,7 @@ union ast_node *create_delete_operator_node(union ast_node *obj)
 
 
 
+// These dedicated 'getter' and 'setter' method can be replaced by the `create_impl_function_node`!
 union ast_node *create_getter_node(union ast_node *decl_specs, union ast_node *declarator, union ast_node *block)
 {
 	struct ast_function_definition_node *node = (struct ast_function_definition_node *) malloc(sizeof(struct ast_function_definition_node));
@@ -1057,7 +1142,7 @@ union ast_node *create_setter_node(union ast_node *decl_specs, union ast_node *d
 
 	return (union ast_node *) node;
 }
-union ast_node *create_getter_or_setter_node(int type, union ast_node *decl_specs, union ast_node *declarator, union ast_node *block)
+union ast_node *create_impl_function_node(int type, union ast_node *decl_specs, union ast_node *declarator, union ast_node *block)
 {
 	struct ast_function_definition_node *node = (struct ast_function_definition_node *) malloc(sizeof(struct ast_function_definition_node));
 	node->type = type;

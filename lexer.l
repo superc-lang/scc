@@ -41,8 +41,29 @@ static inline void init_id(struct ast_id_node *id)
 	}
 }
 
+int generic_level = 0;
+
+//<IN_GENERIC>[a-zA-Z_][a-zA-Z_0-9]*<.*?> { return GENERIC; } /* Match any identifier followed by '<' and '>', and allow any characters in between */
 
 //	Good list of C (and Objective-C) keywords: https://android.googlesource.com/toolchain/gcc/+/donut/gcc-4.2.1/gcc/c-parser.c
+
+/*
+
+{UC}						{ yylval.node = (void *) & ucase_node[yytext[0] - 'A']; int type = check_type(); if (type == GENERIC_NAME) { BEGIN(IN_GENERIC); } return type; }
+{LC}						{ yylval.node = (void *) & lcase_node[yytext[0] - 'a']; int type = check_type(); if (type == GENERIC_NAME) { BEGIN(IN_GENERIC); } return type; }
+
+{ID}						{ yylval.node = create_id_node(yytext); int type = check_type(); if (type == GENERIC_NAME) { BEGIN(IN_GENERIC); } return type; }
+
+*/
+
+
+/**
+ * Disable the following warning:
+ * lex.yy.c:3315:17: warning: ‘yyunput’ defined but not used [-Wunused-function]
+ * 3315 |     static void yyunput (int c, char * yy_bp )
+ *      |                 ^~~~~~~
+ */
+#pragma GCC diagnostic ignored "-Wunused-function"
 
 %}
 
@@ -58,6 +79,8 @@ static inline void init_id(struct ast_id_node *id)
 %x IN_COMMENT
 %x IN_LINE
 %x IN_ATTRIBUTE
+%x START_GENERIC
+%x IN_GENERIC
 
 %x attribute
 %x pragma
@@ -82,6 +105,8 @@ WS	[ \t\v\n\f]
 NUM {D}+
 FILENAME	"\"([^\"\\\n])*\""
 LINE2		"#[ \t]*[0-9]+[ \t]*(\"([^\"\\\n])*\"[ \t]*)?"
+
+ID	{L}{A}*
 
 LINE	#[ \t]*([0-9]+)[ \t]*"([^\"])*".*
 
@@ -288,14 +313,12 @@ PP	(#[ \t]*)
 "typeof"					{ return TYPEOF; /* TYPE_QUAL -- GCC extension -- https://gcc.gnu.org/onlinedocs/gcc/Typeof.html -- "If you are writing a header file that must work when included in ISO C programs, write __typeof__ instead of typeof." */ }
 
 "bool"						{ return BOOL; /* alias for: "_Bool" */ }
-"true"						{ yylval.node = (void *) & digit_node[1]; return I_CONSTANT; /* In future we should add a dedicated "true_node"? One potential issue with "true" is that we could also change any conditions using it to "!= 0" because this is much more efficient than testing "== 1". "Expands to the integer constant 1" */ }
-"false"						{ yylval.node = (void *) & digit_node[0]; return I_CONSTANT; /* "Expands to the integer constant 0" ... In C23, this becomes ((bool)0) and ((bool)1) for true! */ }
+"true"						{ yylval.node = DIGIT_NODE(1); return I_CONSTANT; /* In future we should add a dedicated "true_node"? One potential issue with "true" is that we could also change any conditions using it to "!= 0" because this is much more efficient than testing "== 1". "Expands to the integer constant 1" */ }
+"false"						{ yylval.node = DIGIT_NODE(0); return I_CONSTANT; /* "Expands to the integer constant 0" ... In C23, this becomes ((bool)0) and ((bool)1) for true! */ }
 
-"null"						{ yylval.node = (void *) & null_node; return I_CONSTANT; }
-"nullptr"					{ yylval.node = (void *) & null_node; return I_CONSTANT; }
-"NULL"						{ yylval.node = (void *) & null_node; return I_CONSTANT; /* This is here just in-case the traditional NULL macro wasn't expanded! */ }
-
-"a"|"b"|"c"|"d"|"e"|"f"|"g"|"h"|"i"|"j"|"k"|"l"|"m"|"n"|"o"|"p"|"q"|"r"|"s"|"t"|"u"|"v"|"w"|"x"|"y"|"z" { yylval.node = (void *) & lcase_node[yytext[0] - 'a']; return check_type(); }
+"null"						{ yylval.node = NULL_NODE; return I_CONSTANT; }
+"nullptr"					{ yylval.node = NULL_NODE; return I_CONSTANT; }
+"NULL"						{ yylval.node = NULL_NODE; return I_CONSTANT; /* This is here just in-case the traditional NULL macro wasn't expanded! */ }
 
 "strlen"					{ yylval.node = (void *) & strlen_node; return check_type(); }
 
@@ -332,11 +355,16 @@ PP	(#[ \t]*)
 
 "impl"						{ return IMPL; }
 
-{L}{A}*						{ yylval.node = create_id_node(yytext); return check_type(); }
+[A-Z]						{ yylval.node = UCASE_NODE(yytext[0] - 'A'); return check_type(); }
+[a-z]						{ yylval.node = LCASE_NODE(yytext[0] - 'a'); return check_type(); }
+
+{ID}						{ yylval.node = create_id_node(yytext); return check_type(); }
+
+[0-9]						{ yylval.node = DIGIT_NODE(yytext[0] - '0'); return I_CONSTANT; }
 
 {HP}{H}+{IS}?				{ yylval.node = create_numeric_node(yytext); return I_CONSTANT; }
-{NZ}{D}*{IS}?				{ yylval.node = yytext[1] == '\0' ? (void*) & digit_node[yytext[0] - '0'] : create_numeric_node(yytext); return I_CONSTANT; }
-"0"{O}*{IS}?				{ yylval.node = yytext[1] == '\0' ? (void*) & digit_node[0] : create_numeric_node(yytext); return I_CONSTANT; }
+{NZ}{D}*{IS}?				{ yylval.node = yytext[1] == '\0' ? DIGIT_NODE(yytext[0] - '0') : create_numeric_node(yytext); return I_CONSTANT; }
+"0"{O}*{IS}?				{ yylval.node = yytext[1] == '\0' ? DIGIT_NODE(0) : create_numeric_node(yytext); return I_CONSTANT; }
 {CP}?"'"([^'\\\n]|{ES})+"'"	{ yylval.node = create_numeric_node(yytext); return I_CONSTANT; /* char node: eg. 'a' */ }
 
 {D}+{E}{FS}?				{ yylval.node = create_numeric_node(yytext); return F_CONSTANT; }
@@ -407,12 +435,102 @@ PP	(#[ \t]*)
 #[ \t]*					{ BEGIN(IN_LINE); }
 <IN_LINE>.*				{
 							sscanf(yytext, "%d \"%[^\"]", &yylineno, filename);
+							yylineno--;	// gets automatically incremented by Flex at the end of the line!
 							BEGIN(INITIAL);
 						}
 
 
 {WS}+					{ /* whitespace separates tokens */ }
 .						{ yyerror("invalid character"); }
+
+
+<START_GENERIC>"<"			{ generic_level++; BEGIN(IN_GENERIC); return '<'; }
+<START_GENERIC>{WS}+		{ /* ignore whitespace */ }
+<START_GENERIC>.			{ yyerror("invalid character after generic name, expecting '<'"); }
+
+<IN_GENERIC>"<"				{ generic_level++; return '<'; }
+<IN_GENERIC>">"				{
+								generic_level--;
+								if (generic_level == 0) {
+									BEGIN(INITIAL);
+								}
+								return '>';
+							}
+<IN_GENERIC>"const"			{ return CONST; }
+
+<IN_GENERIC>"bool"			{ return BOOL; }
+<IN_GENERIC>"_Bool"			{ return BOOL; }
+
+<IN_GENERIC>"char"			{ return CHAR; }
+<IN_GENERIC>"short"			{ return SHORT; }
+<IN_GENERIC>"int"			{ return INT; }
+<IN_GENERIC>"long"			{ return LONG; }
+<IN_GENERIC>"float"			{ return FLOAT; }
+<IN_GENERIC>"double"		{ return DOUBLE; }
+
+<IN_GENERIC>"struct"		{ return STRUCT; }
+<IN_GENERIC>"union"			{ return UNION; }
+
+<IN_GENERIC>"signed"		{ return SIGNED; }
+<IN_GENERIC>"unsigned"		{ return UNSIGNED; }
+
+<IN_GENERIC>"void"			{ return VOID; }
+<IN_GENERIC>"*"				{ return '*'; }
+
+<IN_GENERIC>"enum"			{ return ENUM; }
+<IN_GENERIC>"volatile"		{ return VOLATILE; }
+<IN_GENERIC>"_Atomic"		{ return ATOMIC; }
+<IN_GENERIC>"_Float128"		{ return _FLOAT128; }
+<IN_GENERIC>"__int128"		{ return __INT128; }
+<IN_GENERIC>"__int128_t"	{ return __INT128_T; }
+<IN_GENERIC>"__uint128_t"	{ return __UINT128_T; }
+<IN_GENERIC>"_Decimal32"	{ return _DECIMAL32; }
+<IN_GENERIC>"_Decimal64"	{ return _DECIMAL64; }
+<IN_GENERIC>"_Decimal128"	{ return _DECIMAL128; }
+<IN_GENERIC>"_BitInt(128)"	{ return _BITINT128; }
+<IN_GENERIC>"_BitInt("{D}+")"	{ yylval.node = create__bitint__node(yytext); return _BITINT; }
+
+<IN_GENERIC>"null"			{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"nullptr"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"NULL"			{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+
+<IN_GENERIC>"true"			{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"false"			{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+
+<IN_GENERIC>"auto"			{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"register"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"default"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"extern"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"if"			{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"inline"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"return"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"static"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"switch"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"typedef"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"_Alignas"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"_Alignof"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"_Complex"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"_Generic"		{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+<IN_GENERIC>"_Imaginary"	{ fprintf(stderr, "SYNTAX ERROR: Cannot use `%s` in generics!\n", yytext); exit(EXIT_FAILURE); }
+
+<IN_GENERIC>"sizeof"		{ return SIZEOF; /* Do I really want to support this??? */ }
+<IN_GENERIC>"("				{ return '('; }
+<IN_GENERIC>")"				{ return ')'; }
+
+<IN_GENERIC>[A-Z]			{ yylval.node = UCASE_NODE(yytext[0] - 'A'); return check_type(); }
+<IN_GENERIC>[a-z]			{ yylval.node = LCASE_NODE(yytext[0] - 'a'); return check_type(); }
+
+<IN_GENERIC>{ID}			{ yylval.node = create_id_node(yytext); return check_type(); }
+
+<IN_GENERIC>[0-9]			{ yylval.node = DIGIT_NODE(yytext[0] - '0'); return I_CONSTANT; }
+
+<IN_GENERIC>{HP}{H}+{IS}?	{ yylval.node = create_numeric_node(yytext); return I_CONSTANT; }
+<IN_GENERIC>{NZ}{D}*{IS}?	{ yylval.node = yytext[1] == '\0' ? DIGIT_NODE(yytext[0] - '0') : create_numeric_node(yytext); return I_CONSTANT; }
+<IN_GENERIC>"0"{O}*{IS}?	{ yylval.node = yytext[1] == '\0' ? DIGIT_NODE(0) : create_numeric_node(yytext); return I_CONSTANT; }
+
+<IN_GENERIC>{WS}+			{ /* ignore whitespace */ }
+<IN_GENERIC>.				{ yyerror("invalid character used in generic"); }
+
 
 %EOF					{ return END_OF_FILE; }
 
@@ -468,6 +586,16 @@ static int check_type()
 	/* if (hash_set_find(&typedefs, yytext)) */
 	if (symbol_is_typedef(yytext)) {
 		return TYPEDEF_NAME;
+	}
+
+	if (symbol_is_generic_type(yytext)) {	//	eg. T
+		return GENERIC_TYPE;
+	}
+
+	if (symbol_is_generic(yytext)) {	//	eg. `Vec3`
+		if (generic_level == 0)
+			BEGIN(START_GENERIC);
+		return GENERIC_NAME;
 	}
 
 	/* if (string_array_contains(&enums, yytext))

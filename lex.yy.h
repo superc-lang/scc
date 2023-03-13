@@ -214,8 +214,10 @@ extern char *yytext;
 #define IN_COMMENT 1
 #define IN_LINE 2
 #define IN_ATTRIBUTE 3
-#define attribute 4
-#define pragma 5
+#define START_GENERIC 4
+#define IN_GENERIC 5
+#define attribute 6
+#define pragma 7
 
 #endif
 
@@ -469,9 +471,9 @@ extern int yylex (void);
 #undef yyTABLES_NAME
 #endif
 
-#line 419 "lexer.l"
+#line 537 "lexer.l"
 
 
-#line 476 "lex.yy.h"
+#line 478 "lex.yy.h"
 #undef yyIN_HEADER
 #endif /* yyHEADER_H */

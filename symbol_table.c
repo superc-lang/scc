@@ -8,6 +8,10 @@
 // DEBUG link: https://godbolt.org/z/sh5oTPGoG
 // Includes symbol_keys!
 
+#ifndef NULL
+#define NULL ((void *) 0)
+#endif
+
 typedef struct scope_symbol_t scope_symbol_t;
 typedef struct scope_symbols_t scope_symbols_t;
 typedef struct scope_t scope_t;
@@ -166,7 +170,7 @@ symbol_t *symbol_get(const char *key)
 	assert(scopes.used > 0);
 
 	unsigned hash = symbol_hash(key);
-	
+
 	for (int i = scopes.used - 1; i >= 0; --i) {
 		scope_t *scope = &scopes.scopes[i];
 
@@ -182,7 +186,30 @@ symbol_t *symbol_get(const char *key)
 		}
 	}
 
-	return (symbol_t *) 0;
+	return NULL;
+}
+
+
+symbol_t *symbol_get_at_level(const char *key)	//	Searches the current scope level only
+{
+	assert(scopes.used > 0);
+
+	unsigned hash = symbol_hash(key);
+
+	scope_t *scope = &scopes.scopes[scopes.used - 1];
+
+	unsigned mask = scope->ht_size - 1;
+	unsigned hash_idx = hash & mask;
+
+	scope_symbol_t *scope_symbol = scope->hash_table[hash_idx];
+	while (scope_symbol) {
+		if (scope_symbol->hash == hash && strcmp(scope_symbol->key, key) == 0) {
+			return &scope_symbol->symbol;
+		}
+		scope_symbol = scope_symbol->next;
+	}
+
+	return NULL;
 }
 
 
@@ -220,6 +247,29 @@ int symbol_is_typedef(const char *key)
 	int result = symbol_is(key, symbol_is_typedef_callback);
 	return result > 0;
 }
+
+
+int symbol_is_generic_callback(symbol_t *symbol)
+{
+	return symbol->is_generic;
+}
+int symbol_is_generic(const char *key)
+{
+	return symbol_is(key, symbol_is_generic_callback);
+}
+
+int symbol_is_generic_type_callback(symbol_t *symbol)
+{
+	return symbol->is_generic_type;
+}
+int symbol_is_generic_type(const char *key)
+{
+	return symbol_is(key, symbol_is_generic_type_callback);
+}
+
+
+
+
 // int symbol_is_typedef(const char *key)
 // {
 // 	return symbol_is(key, s => s->is_typedef ?: -1);
@@ -292,33 +342,62 @@ int symbol_is_function(const char *key)
 // int symbol_is_struct_or_union(const char *key);
 
 
-void symbol_table_print(FILE *fd)
+void symbol_table_print(FILE *out)
 {
 	for (unsigned i = 0; i < scopes.used; i++) {
 		scope_t *scope = &scopes.scopes[i];
-		fprintf(fd, "Scope: %u\n-----------------\n", i);
+		fprintf(out, "Scope level: %u\n-----------------\n", i);
 
 		unsigned ht_count = 0;
 		for (unsigned j = 0; j < scope->ht_size; j++) {
 			scope_symbol_t *scope_symbol = scope->hash_table[j];
 			while (scope_symbol) {
-				printf("%s (%u)\n", scope_symbol->key, j);
+				printf("%s (%u)", scope_symbol->key, j);
+				if (scope_symbol->symbol.is_typedef) {
+					fputs(" (typedef)", out);
+				}
+				if (scope_symbol->symbol.is_enum_constant) {
+					fputs(" (enum)", out);
+				}
+				if (scope_symbol->symbol.is_function) {
+					fputs(" (function)", out);
+				}
+
+				if (scope_symbol->symbol.is_generic) {
+					if (scope_symbol->symbol.is_struct) {
+						fputs(" (generic struct)", out);
+					} else if (scope_symbol->symbol.is_union) {
+						fputs(" (generic union)", out);
+					} else {
+						fputs(" (generic)", out);
+					}
+				} else if (scope_symbol->symbol.is_struct) {
+					fputs(" (struct)", out);
+				} else if (scope_symbol->symbol.is_union) {
+					fputs(" (union)", out);
+				}
+
+				if (scope_symbol->symbol.is_generic_type) {
+					fputs(" (generic type)", out);
+				}
+
+				fputc('\n', out);
 				scope_symbol = scope_symbol->next;
 				ht_count++;
 			}
 		}
-		fprintf(fd, "Hash Table symbols: %u\n", ht_count);
-		fprintf(fd, "-----------------\n");
-		fprintf(fd, "Slabs:\n");
+		fprintf(out, "Hash Table symbols: %u\n", ht_count);
+		fputs("-----------------\n", out);
+		fputs("Slabs:\n", out);
 
 		scope_symbols_t *symbols = scope->symbols;
 		while (symbols) {
-			fprintf(fd, "Used %u of %u\n", symbols->used, symbols->capacity);
+			fprintf(out, "Used %u of %u\n", symbols->used, symbols->capacity);
 			
 			symbols = symbols->next;
 		}
 
-		fprintf(fd, "-----------------\n");
+		fputs("-----------------\n", out);
 	}
 }
 
@@ -360,6 +439,65 @@ symbol_t *symbol_add_pointer(const char *key, union ast_node *node)
 
 	return symbol;
 }
+
+
+//	NOTE: At this point, I think the `node` will always be NULL!
+//	We `update` the symbol with the `node` at the end of the declaration!
+//	This is so that structures can use the 'parent' structure internally, like linked list nodes pointing to themselves!
+symbol_t *__symbol_add_generic_name(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_add(key);
+
+	// symbol->is_generic_name = 1;
+	symbol->node = node;
+
+	return symbol;
+}
+symbol_t *symbol_add_generic_type(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_add(key);
+
+	symbol->is_generic_type = 1;
+	symbol->node = node;
+
+	return symbol;
+}
+symbol_t *symbol_add_generic_impl(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_add(key);
+
+	symbol->is_generic_impl = 1;
+	symbol->node = node;
+
+	return symbol;
+}
+symbol_t *symbol_add_generic_static_impl(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_add(key);
+
+	symbol->is_generic_static_impl = 1;
+	symbol->node = node;
+
+	return symbol;
+}
+
+
+symbol_t *__symbol_update_generic_name(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_get(key);
+
+	assert(symbol != NULL);
+	// assert(symbol->is_generic_name == 1);
+	assert(symbol->node == NULL);
+
+	symbol->node = node;
+
+	return symbol;
+}
+
+
+
+
 
 
 
@@ -429,6 +567,25 @@ symbol_t *symbol_add_setter(const char *key, union ast_node *node)
 
 	return symbol;
 }
+
+
+
+symbol_t *symbol_add_generic(const char *key, union ast_node *node)
+{
+	symbol_t *symbol = symbol_add(key);
+
+	// assert(node->type == AST_GENERIC_STRUCT || node->type == AST_GENERIC_UNION);
+
+	symbol->is_generic = 1;
+	//	I don't want to add `ast.h` just for this function! So I'll do this outside of this function!
+	//	Look for the function called `register_generic_struct_or_union`!
+	// symbol->is_struct = node->type == AST_GENERIC_STRUCT;
+	// symbol->is_union = node->type == AST_GENERIC_UNION;
+	symbol->node = node;
+
+	return symbol;
+}
+
 
 
 

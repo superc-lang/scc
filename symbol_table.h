@@ -11,12 +11,13 @@ void symbol_table_pop_scope();
 
 void symbol_table_reset();
 
-void symbol_table_print(FILE *fd);
+void symbol_table_print(FILE *out);
 
 int symbol_table_get_level();
 
 symbol_t *symbol_add(const char *key);
 symbol_t *symbol_get(const char *key);
+// symbol_t *symbol_get_at_level(const char *key);	//	Searches the current scope level only
 
 
 symbol_t *symbol_add_function(const char *key, union ast_node *node);
@@ -28,6 +29,19 @@ symbol_t *symbol_add_pointer(const char *key, union ast_node *node);
 
 symbol_t *symbol_add_getter(const char *key, union ast_node *node);
 symbol_t *symbol_add_setter(const char *key, union ast_node *node);
+
+
+
+symbol_t *symbol_add_generic(const char *key, union ast_node *node);
+
+
+
+symbol_t *symbol_add_generic_name(const char *key, union ast_node *node);
+symbol_t *symbol_add_generic_type(const char *key, union ast_node *node);
+symbol_t *symbol_add_generic_impl(const char *key, union ast_node *node);
+symbol_t *symbol_add_generic_static_impl(const char *key, union ast_node *node);
+
+symbol_t *symbol_update_generic_name(const char *key, union ast_node *node);
 
 
 symbol_t *symbol_add_typedef(const char *key, union ast_node *node);			//	Standard data type eg. typedef long int i32;
@@ -49,6 +63,12 @@ int symbol_is(const char *key, int (*cmp)(symbol_t *symbol));
 
 int symbol_is_declared(const char *key);	//	declared functions = int fn();
 int symbol_is_defined(const char *key);		//	defined functions = int fn(...) { ... }
+
+
+int symbol_is_generic(const char *key);
+int symbol_is_generic_type(const char *key);
+int symbol_is_generic_impl(const char *key);
+int symbol_is_generic_static_impl(const char *key);
 
 
 int symbol_is_typedef(const char *key);

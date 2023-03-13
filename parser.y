@@ -15,58 +15,20 @@
 #include "ast.h"
 #include "ast_nodes.h"
 #include "ast_helpers.h"
+#include "print_ast_tree.h"
+#include "symbol_table.h"
+#include "scc.h"
+#include "print_syntax.h"
 
 extern int yylineno;
 extern const char *yyfilename;
 
-extern void print_ast_tree(FILE *out, union ast_node* node, int depth, union ast_node* parent);
-
-
-#include "symbol_table.h"
-
 extern int error_count;
 char func_name[512];
 
-
-static inline union ast_node* maybe_attributes(union ast_node *left, union ast_node *right);
-
 void yyerror(const char *s);
-void register_typedef(union ast_node *decl_specs, union ast_node *declarator);
-
-typedef struct used_datatypes_t {
-	int uses_byte;
-
-	int uses_i8;
-	int uses_u8;			//	We will have to be careful here, because someone might use "u8" or "i8" as a variable name!
-	int uses_int8;
-	int uses_uint8;
-
-	int uses_i16;
-	int uses_u16;
-	int uses_int16;
-	int uses_uint16;
-
-	int uses_i32;
-	int uses_u32;
-	int uses_int32;
-	int uses_uint32;
-
-	int uses_i64;
-	int uses_u64;
-	int uses_int64;
-	int uses_uint64;
-
-	int uses_i128;
-	int uses_u128;
-	int uses_int128;
-	int uses_uint128;
-
-	int uses_f32;
-	int uses_f64;
-	int uses_float32;
-	int uses_float64;
-} datatypes_t;
-
+// void register_typedef(union ast_node *decl_specs, union ast_node *declarator);
+static inline union ast_node *maybe_attributes(union ast_node *left, union ast_node *right);
 
 %}
 /* %empty external_declaration */
@@ -90,7 +52,7 @@ typedef struct used_datatypes_t {
 	char *string;
 	char *i_constant;
 	char *f_constant;
-	union ast_node* node;
+	union ast_node *node;
 	int type;					//	Used for AST_STRUCT and AST_UNION: `struct_or_union`
 }
 
@@ -100,6 +62,45 @@ typedef struct used_datatypes_t {
 %token	<node>		F_CONSTANT
 %token	<node>		ENUMERATION_CONSTANT
 %token	<node>		TYPEDEF_NAME
+
+
+/*
+struct Vec<>;			//	struct IDENTIFIER '<' '>' ... `Vec` gets registered as a GENERIC_NAME
+struct Vec<T> {			//	struct GENERIC_NAME '<' IDENTIFIER '>'
+	...
+};
+
+typedef struct Bar<> Bar<int>;			//	struct IDENTIFIER '<' '>' ... `Bar` gets registered as a GENERIC_NAME
+typedef struct Bar<T> Bar<float>;		//	struct GENERIC_NAME '<' IDENTIFIER '>' ... `Bar` gets registered as a GENERIC_NAME
+
+struct Vec<T> {			//	struct IDENTIFIER '<' IDENTIFIER '>' ... `Vec` gets registered as a GENERIC_NAME
+	T *data;
+	int size;
+};
+
+struct Foo<T> {			//	struct IDENTIFIER '<' IDENTIFIER '>'
+	Foo<T> *next;		//	GENERIC_NAME '<' GENERIC_TYPE '>'
+	Vec<T> *vec;		//	GENERIC_NAME '<' GENERIC_TYPE '>'
+	Vec<int> *vec2;		//	GENERIC_NAME '<' GENERIC_TYPE '>' || GENERIC_TYPEDEF_NAME '<' GENERIC_TYPE '>'
+	struct Bar<T> {		//	struct IDENTIFIER '<' IDENTIFIER '>'
+		int x;
+	};
+	int x;
+};
+
+typedef struct Foo<> Foo<int>;			//	GENERIC_NAME '<' GENERIC_TYPEDEF_NAME '>'		...	`Foo<int>` is registered as a TYPEDEF_NAME ... why do we need this? I think we can use `typedef` like this: `typedef Foo<int> MyFooType;`
+
+typedef struct Foo<int> MyFoo;
+typedef Foo<int> MyFoo;
+
+typedef struct Foo<int> Foo<int>;		//	GENERIC_NAME '<' GENERIC_TYPEDEF_NAME '>'
+
+typedef Foo<int> FooInt;				//	GENERIC_NAME '<' GENERIC_TYPEDEF_NAME '>'
+
+*/
+%token	<node>		GENERIC_TYPE
+%token	<node>		GENERIC_NAME
+/* %token	<node>		GENERIC_TYPEDEF_NAME */
 
 
 %token	FUNC_NAME
@@ -348,6 +349,30 @@ type_specifier
 %type <node> getter_fat_arrow_definition
 %type <node> setter_fat_arrow_definition
 
+
+//	These are used in the initial `struct` or `union` object!
+%type <node> generic_declaration					//	eg. `Vec3<T>`
+%type <node> generic_specifier						//	eg. `Vec3<float>`
+
+%type <node> generic_id_or_generic_name
+
+//	These are used in the `impl` blocks as the template type placeholders (after declaration!)
+%type <node> generic_type_declaration
+%type <node> generic_type_list
+
+%type <node> generic_specifier_qualifier_list
+
+/* %type <node> generic_struct_or_union_specifier	//	generics */
+%type <node> generic_type_specifiers				//	generics
+%type <node> generic_id_list						//	generics
+
+%type <node> generic_id_or_type_declaration
+%type <node> generic_id_or_type_specifiers
+%type <node> generic_id_or_type_list				//	generics
+
+%type <node> generic_body_or_empty
+
+
 /* %type <node> getter
 %type <node> setter */
 
@@ -593,9 +618,9 @@ type_specifier
 
 translation_unit
 	: %empty
-	{ ast_root = $$ = NULL; }
+	{ root_node = $$ = NULL; }
 	| external_declarations
-	{ ast_root = $$ = $1; }
+	{ root_node = $$ = $1; }
 	;
 
 external_declarations
@@ -615,6 +640,7 @@ external_declaration
 	/* Super C `impl` */
 	| impl_definition
 	{ $$ = $1; }
+
 	/*
 	| interface_definition
 	{ $$ = $1; }
@@ -629,9 +655,9 @@ function_definition
 	: declaration_specifiers declarator declaration_list compound_statement
 	{ $$ = create_function_definition_node($1, $2, $3, $4); }
 	| declaration_specifiers declarator
-	{ symbol_table_push_scope(); }
+		{ symbol_table_push_scope(); }
 		compound_statement
-	{ symbol_table_pop_scope(); $$ = create_function_definition_node($1, $2, NULL, $4); }
+		{ symbol_table_pop_scope(); $$ = create_function_definition_node($1, $2, NULL, $4); }
 	;
 
 /* function_body
@@ -672,11 +698,7 @@ impl_definition
 	: IMPL TYPEDEF_NAME '{' impl_body '}'
 	{ $$ = create_impl_node($2, NULL, $4); }
 	| IMPL STATIC TYPEDEF_NAME '{' static_impl_body '}'
-	{ $$ = create_static_impl_node($3, $5); }
-	/*
-	| STATIC IMPL TYPEDEF_NAME '{' static_impl_body '}'	//	Introduces 4 extra shift/reduce conflicts! From 67 to 71!
-	{ $$ = create_static_impl_node($3, $5); }
-	*/
+	{ $$ = create_static_impl_node($3, NULL, $5); }
 	;
 
 impl_body
@@ -802,9 +824,9 @@ impl_direct_declarator
 	{ $$ = create_function_declarator_node($1, $3, NULL); }
 	*/
 	| IDENTIFIER '(' parameter_type_list ')' CONST
-	{ $$ = create_function_declarator_node($1, $3, (void *) & const_node); }
+	{ $$ = create_function_declarator_node($1, $3, CONST_NODE); }
 	| IDENTIFIER '(' ')' CONST
-	{ $$ = create_function_declarator_node($1, NULL, (void *) & const_node); }
+	{ $$ = create_function_declarator_node($1, NULL, CONST_NODE); }
 	;
 
 /*
@@ -823,8 +845,8 @@ impl_first_id
 //	;
 
 this_or_self
-	: THIS { $$ = (void *) & this_node; }
-	| SELF { $$ = (void *) & self_node; }
+	: THIS { $$ = THIS_NODE; }
+	| SELF { $$ = SELF_NODE; }
 	;
 
 getters
@@ -855,7 +877,7 @@ getter_direct_declarator
 	: IDENTIFIER '(' ')'
 	{ $$ = create_function_declarator_node($1, NULL, NULL); }
 	| IDENTIFIER '(' ')' CONST
-	{ $$ = create_function_declarator_node($1, NULL, (void *) & const_node); }
+	{ $$ = create_function_declarator_node($1, NULL, CONST_NODE); }
 	;
 
 setters
@@ -955,10 +977,10 @@ new_function_declarator
 delete_function_definition
 	: declaration_specifiers delete_function_declarator compound_statement
 	{ $$ = create_delete_function_definition_node($1, $2, $3); }
-	/* { $$ = create_delete_function_definition_node((void *) & void_node, $2, $3); } */
+	/* { $$ = create_delete_function_definition_node(VOID_NODE, $2, $3); } */
 	| declaration_specifiers delete_function_declarator ';'
 	{ $$ = create_delete_function_definition_node($1, $2, NULL); }
-	/* { $$ = create_delete_function_definition_node((void *) & void_node, $2, NULL); } */
+	/* { $$ = create_delete_function_definition_node(VOID_NODE, $2, NULL); } */
 	| declaration_specifiers delete_function_declarator FAT_ARROW expression ';'
 	{ $$ = create_delete_function_definition_node($1, $2, create_block_node(create_return_node($4))); }
 	;
@@ -1301,6 +1323,7 @@ primary_expression
 	| generic_selection
 	{ $$ = $1; }
 
+
 	//
 	//	Super C extensions
 	//
@@ -1308,12 +1331,6 @@ primary_expression
 	//	NOTE: We need to add this here, so we can support statements like this: "return this;", or even sending "this" or "self" in the parameter list!
 	| this_or_self
 	{ $$ = $1; }
-	/*
-	| THIS
-	{ $$ = $1; }
-	| SELF
-	{ $$ = $1; }
-	*/
 
 	/*
 	| NEW STRUCT IDENTIFIER
@@ -1330,21 +1347,12 @@ primary_expression
 	{ $$ = create_binary_node(AST_NS_OP, $1, (void *) & new_as_id_node); }
 	| TYPEDEF_NAME namespace_operator IDENTIFIER
 	{ $$ = create_binary_node(AST_NS_OP, $1, $3); }
-	/*
-	| IDENTIFIER namespace_operator
-	{
-		//	ERROR! The `namespace_operator` ('.' or '::') can only be used with a valid `TYPEDEF_NAME`!
-		fprintf(stderr, "ERROR: The `namespace_operator` ('.' or '::') can only be used with a valid `TYPEDEF_NAME`!\n");
-		exit(EXIT_FAILURE);
-	}
-	*/
+
 	| NEW
 	{ $$ = (void *) & new_as_id_node; }
 
-
 	| delete_expression
 	{ $$ = $1; }
-
 
 	| __asm__specifier
 	{ $$ = $1; }
@@ -1379,7 +1387,7 @@ string
 
 generic_selection
 	: GENERIC '(' assignment_expression ',' generic_assoc_list ')'
-	{ $$ = create_tmp_node(); }
+	{ $$ = create_tmp_node(); }	//	create_generic_selection_node()
 	;
 
 generic_assoc_list
@@ -1540,7 +1548,7 @@ attribute
 
 storage_class_specifier
 	: maybe_attributes TYPEDEF	/* identifiers must be flagged as TYPEDEF_NAME */
-	{ $$ = maybe_attributes($1, (void *) & typedef_node); }
+	{ $$ = maybe_attributes($1, TYPEDEF_NODE); }
 	/* : extension_specifier TYPEDEF
 	{ $$ = create_list_node($1, typedef_node, " "); }
 	| extension_specifier EXTERN
@@ -1548,17 +1556,17 @@ storage_class_specifier
 	| extension_specifier STATIC
 	{ $$ = create_list_node($1, static_node, " "); } */
 	| maybe_attributes EXTERN
-	{ $$ = maybe_attributes($1, (void *) & extern_node); }
+	{ $$ = maybe_attributes($1, EXTERN_NODE); }
 	/* | extension_specifier STATIC
 	{ $$ = create_list_node($1, static_node, " "); } */
 	| maybe_attributes STATIC
-	{ $$ = maybe_attributes($1, (void *) & static_node); }
+	{ $$ = maybe_attributes($1, STATIC_NODE); }
 	| maybe_attributes THREAD_LOCAL
-	{ $$ = maybe_attributes($1, (void *) & thread_local_node); }
+	{ $$ = maybe_attributes($1, THREAD_LOCAL_NODE); }
 	| maybe_attributes AUTO
-	{ $$ = maybe_attributes($1, (void *) & auto_node); }
+	{ $$ = maybe_attributes($1, AUTO_NODE); }
 	| maybe_attributes REGISTER
-	{ $$ = maybe_attributes($1, (void *) & register_node); }
+	{ $$ = maybe_attributes($1, REGISTER_NODE); }
 
 	/* GCC "__extension__" */
 	/* | __EXTENSION__
@@ -1569,29 +1577,29 @@ storage_class_specifier
 
 type_specifier
 	: maybe_attributes VOID
-	{ $$ = maybe_attributes($1, (void *) & void_node); }
+	{ $$ = maybe_attributes($1, VOID_NODE); }
 	| maybe_attributes CHAR
-	{ $$ = maybe_attributes($1, (void *) & char_node); }
+	{ $$ = maybe_attributes($1, CHAR_NODE); }
 	| maybe_attributes SHORT
-	{ $$ = maybe_attributes($1, (void *) & short_node); }
+	{ $$ = maybe_attributes($1, SHORT_NODE); }
 	| maybe_attributes INT
-	{ $$ = maybe_attributes($1, (void *) & int_node); }
+	{ $$ = maybe_attributes($1, INT_NODE); }
 	| maybe_attributes LONG
-	{ $$ = maybe_attributes($1, (void *) & long_node); }
+	{ $$ = maybe_attributes($1, LONG_NODE); }
 	| maybe_attributes FLOAT
-	{ $$ = maybe_attributes($1, (void *) & float_node); }
+	{ $$ = maybe_attributes($1, FLOAT_NODE); }
 	| maybe_attributes DOUBLE
-	{ $$ = maybe_attributes($1, (void *) & double_node); }
+	{ $$ = maybe_attributes($1, DOUBLE_NODE); }
 	| maybe_attributes SIGNED
-	{ $$ = maybe_attributes($1, (void *) & signed_node); }
+	{ $$ = maybe_attributes($1, SIGNED_NODE); }
 	| maybe_attributes UNSIGNED
-	{ $$ = maybe_attributes($1, (void *) & unsigned_node); }
+	{ $$ = maybe_attributes($1, UNSIGNED_NODE); }
 	| maybe_attributes BOOL
-	{ $$ = maybe_attributes($1, (void *) & bool_node); }
+	{ $$ = maybe_attributes($1, BOOL_NODE); }
 	| maybe_attributes COMPLEX
-	{ $$ = maybe_attributes($1, (void *) & complex_node); }
+	{ $$ = maybe_attributes($1, COMPLEX_NODE); }
 	| maybe_attributes IMAGINARY	  	/* non-mandated extension */
-	{ $$ = maybe_attributes($1, (void *) & imaginary_node); }
+	{ $$ = maybe_attributes($1, IMAGINARY_NODE); }
 	| maybe_attributes atomic_type_specifier
 	{ $$ = maybe_attributes($1, $2); }
 	| maybe_attributes struct_or_union_specifier
@@ -1600,6 +1608,17 @@ type_specifier
 	{ $$ = maybe_attributes($1, $2); }
 	| maybe_attributes TYPEDEF_NAME		/* after it has been defined as such */
 	{ $$ = maybe_attributes($1, $2); }
+
+
+	//	NOTE: I don't think the next comment is true anymore, but I'm leaving it here for now.
+	//	NOTE: I'm moving this out of here, because it was causing a shift/reduce ambiguity!
+	//	The ambiguity occured usually when you had a `struct` with an inner `struct` using the generic name.
+	//	However, this began when I added abilities for opaque generics, and I had to add `type_specifier` to one of the generic lists
+	| maybe_attributes GENERIC_TYPE
+	{ $$ = maybe_attributes($1, $2); }
+
+	| generic_specifier
+	{ $$ = $1; }
 
 	/* GCC extensions */
 
@@ -1614,49 +1633,150 @@ type_specifier
 	{ $$ = $1; } */
 
 	| maybe_attributes __BUILTIN_VA_LIST
-	{ $$ = maybe_attributes($1, (void *) & builtin_va_list_node); }
+	{ $$ = maybe_attributes($1, BUILTIN_VA_LIST_NODE); }
 
 	/* https://android.googlesource.com/toolchain/gcc/+/donut/gcc-4.2.1/gcc/c-parser.c */
 	| maybe_attributes _DECIMAL32
-	{ $$ = maybe_attributes($1, (void *) & ___decimal32_node); }
+	{ $$ = maybe_attributes($1, DECIMAL32_NODE); }
 	| maybe_attributes _DECIMAL64
-	{ $$ = maybe_attributes($1, (void *) & ___decimal64_node); }
+	{ $$ = maybe_attributes($1, DECIMAL64_NODE); }
 	| maybe_attributes _DECIMAL128
-	{ $$ = maybe_attributes($1, (void *) & ___decimal128_node); }
+	{ $$ = maybe_attributes($1, DECIMAL128_NODE); }
 
 	| maybe_attributes _FLOAT128
-	{ $$ = maybe_attributes($1, (void *) & ___float128_node); }
+	{ $$ = maybe_attributes($1, FLOAT128_NODE); }
 	| maybe_attributes __INT128
-	{ $$ = maybe_attributes($1, (void *) & ___int128_node); }
+	{ $$ = maybe_attributes($1, INT128_NODE); }
 	| maybe_attributes __INT128_T
-	{ $$ = maybe_attributes($1, (void *) & ___int128_t_node); }
+	{ $$ = maybe_attributes($1, INT128_T_NODE); }
 	| maybe_attributes __UINT128_T
-	{ $$ = maybe_attributes($1, (void *) & ___uint128_t_node); }
+	{ $$ = maybe_attributes($1, UINT128_T_NODE); }
 
 	| maybe_attributes _BITINT128
-	{ $$ = maybe_attributes($1, (void *) & ___bitint128_node); }
+	{ $$ = maybe_attributes($1, BITINT128_NODE); }
 	| maybe_attributes _BITINT
 	{ $$ = maybe_attributes($1, $2); }
 	;
+
+
 
 struct_or_union_specifier
 	: struct_or_union '{' '}'
 	{ $$ = create_struct_or_union_node($1, NULL, NULL); }
 	| struct_or_union '{' struct_declaration_list '}' /* maybe_postfix_attributes */
 	{ $$ = create_struct_or_union_node($1, NULL, $3); }
-	//{ $$ = create_struct_or_union_node($1, NULL, $3); $$ = $5 == NULL ? $$ : create_list_node($$, $5, " "); }
-	/* : extension_specifier struct_or_union '{' struct_declaration_list '}'
-	{ $$ = create_struct_or_union_node($2, NULL, $4); $$ = create_list_node($1, $$, " "); }
-	| extension_specifier struct_or_union IDENTIFIER '{' struct_declaration_list '}'
-	{ $$ = create_struct_or_union_node($2, $3, $5); $$ = create_list_node($1, $$, " "); } */
 	| struct_or_union identifier '{' '}'
 	{ $$ = create_struct_or_union_node($1, $2, NULL); }
 	| struct_or_union identifier '{' struct_declaration_list '}' /* maybe_postfix_attributes */
 	{ $$ = create_struct_or_union_node($1, $2, $4); }
-	//{ $$ = create_struct_or_union_node($1, $2, $4); $$ = $6 == NULL ? $$ : create_list_node($$, $6, " "); }
 	| struct_or_union identifier
 	{ $$ = create_struct_or_union_node($1, $2, NULL); }
+
+	| struct_or_union generic_declaration '{' struct_declaration_list '}'
+	{
+		symbol_table_pop_scope();
+		$$ = create_struct_or_union_node($1 == AST_STRUCT ? AST_GENERIC_STRUCT : AST_GENERIC_UNION, $2, $4);
+		// symbol_update_generic(get_id_node($2)->id.id, $$);
+	}
+	| struct_or_union generic_declaration
+	{
+		symbol_table_pop_scope();
+		$$ = create_struct_or_union_node($1 == AST_STRUCT ? AST_GENERIC_STRUCT : AST_GENERIC_UNION, $2, NULL);
+		// symbol_add_generic_name(get_id_node($2)->id.id, NULL);
+	}
+	/*
+	| struct_or_union IDENTIFIER '<' error '>'
+	{
+		fprintf(stderr, "Generic type names eg. `<T>` cannot be used with a `struct`, remove the `struct` and try again!\n");
+		exit(1);
+	}
+	*/
 	;
+
+generic_declaration
+	: generic_id_or_generic_name '<' { symbol_table_push_scope(); } generic_id_list '>'
+	{ $$ = create_generic_declaration_node($1, $4, yyfilename, yylineno); }
+	;
+
+generic_id_or_generic_name
+	: IDENTIFIER
+	{ $$ = $1; symbol_add_generic($1->id.id, NULL); }
+	| GENERIC_NAME
+	{ $$ = $1; }
+	;
+
+generic_id_list
+	: %empty
+	{ $$ = NULL; }
+	| IDENTIFIER
+	{ $$ = $1; symbol_add_generic_type($1->id.id, $1); }
+	| generic_id_list ',' IDENTIFIER
+	{ $$ = create_generic_list_node($1, $3); symbol_add_generic_type($3->id.id, $3); }
+
+	// NOTE: This is already included in `specifier_qualifier_list`
+	/*
+	| GENERIC_TYPE
+	{ $$ = $1; }
+	| generic_id_list ',' GENERIC_TYPE
+	{ $$ = create_generic_list_node($1, $3); }
+	*/
+
+	// From 68 to 70 shift/reduce conflicts!
+	| specifier_qualifier_list
+	{ $$ = $1; }
+	| generic_id_list ',' specifier_qualifier_list
+	{ $$ = create_generic_list_node($1, $3); }
+	;
+
+generic_specifier
+	: GENERIC_NAME '<' generic_specifier_qualifier_list '>'
+	{ $$ = create_generic_specifier_node($1, $3, yyfilename, yylineno); }
+	;
+
+generic_specifier_qualifier_list
+	: specifier_qualifier_list
+	{ $$ = $1; }
+	| generic_specifier_qualifier_list ',' specifier_qualifier_list
+	{ $$ = create_generic_list_node($1, $3); }
+	| IDENTIFIER
+	{
+		char buf[512];
+		snprintf(buf, 512,
+			"Syntax error: unexpected token `%s` on line %d.\n"
+			"> Only concrete types or pre-defined generic types within a generic struct allowed.\n"
+			"> Are you trying to declare a generic typedef with `typedef struct Foo<> Foo<%s>;`\n"
+			"> Or are you trying to declare a variable with a generic typename `Foo<%s> foo;` outside a generic struct?\n"
+			"> You cannot declare a generic typedef or variable this way,"
+			" as the <%s> is not valid outside a generic struct or `impl` block!",
+			$1->id.id,
+			yylineno,
+			$1->id.id,
+			$1->id.id,
+			$1->id.id);
+		yyerror(buf);
+		// fprintf(stderr, "Syntax error: unexpected token %s at line %d\n", $1->id.id, @1.first_line);
+		YYERROR;
+	}
+	/*
+	| error
+	{
+		$$ = NULL;
+	}
+	*/
+/*
+	| GENERIC_TYPE
+	{ $$ = $1; }
+	| generic_specifier_qualifier_list ',' GENERIC_TYPE
+	{ $$ = create_generic_list_node($1, $3); }
+*/
+	;
+
+
+
+
+
+
+
 
 /* Added to the original C11 spec when I realized that if you declare a typename, the same as the struct, then the `typename` lookup in the lexer will return `typename` instead of an IDENTIFIER! This is also implemented in GCC 1.42 this way! */
 identifier
@@ -1682,10 +1802,6 @@ struct_declaration
 	{ $$ = create_struct_or_union_declaration_node(maybe_attributes($1, $2), NULL); }
 	| specifier_qualifier_list struct_declarator_list ';'
 	{ $$ = create_struct_or_union_declaration_node($1, $2); }
-	/* | extension_specifier specifier_qualifier_list ';'
-	{ $$ = create_struct_or_union_declaration_node($2, NULL); $$ = create_list_node($1, $$, " "); }
-	| extension_specifier specifier_qualifier_list struct_declarator_list ';'
-	{ $$ = create_struct_or_union_declaration_node($2, $3); $$ = create_list_node($1, $$, " "); } */
 	| static_assert_declaration
 	{ $$ = $1; }
 	;
@@ -1696,13 +1812,10 @@ specifier_qualifier_list
 	| type_specifier
 	{ $$ = $1; }
 
-
 	| extension_specifier type_specifier specifier_qualifier_list
 	{ $$ = create_list_node($1, create_list_node($2, $3, " "), " "); }
 	| extension_specifier type_specifier
 	{ $$ = create_list_node($1, $2, " "); }
-
-
 
 	| type_qualifier specifier_qualifier_list
 	{ $$ = create_list_node($1, $2, " "); }
@@ -1771,19 +1884,19 @@ atomic_type_specifier
 	;
 
 type_qualifier
-	: CONST      { $$ = (void *) & const_node; }
-	| RESTRICT   { $$ = (void *) & restrict_node; }
-	| __RESTRICT { $$ = (void *) & ___restrict_node; }
-	| VOLATILE   { $$ = (void *) & volatile_node; }
-	| ATOMIC     { $$ = (void *) & atomic_node; }
+	: CONST      { $$ = CONST_NODE; }
+	| RESTRICT   { $$ = RESTRICT_NODE; }
+	| __RESTRICT { $$ = _RESTRICT_NODE; }
+	| VOLATILE   { $$ = VOLATILE_NODE; }
+	| ATOMIC     { $$ = ATOMIC_NODE; }
 	;
 
 function_specifier
-	: INLINE        { $$ = (void *) & inline_node; }
-	| NORETURN      { $$ = (void *) & noreturn_node; }
+	: INLINE        { $$ = INLINE_NODE; }
+	| NORETURN      { $$ = NORETURN_NODE; }
 	/* GCC __inline and __inline__ extensions */
-	| __INLINE      { $$ = (void *) & ___inline_node; }
-	| __INLINE__    { $$ = (void *) & ___inline__node; }
+	| __INLINE      { $$ = ___INLINE_NODE; }
+	| __INLINE__    { $$ = ___INLINE___NODE; }
 	;
 
 alignment_specifier
@@ -1828,13 +1941,6 @@ direct_declarator
 	| direct_declarator '[' assignment_expression ']'
 	{ $$ = create_array_node($1, NULL, $3); }
 
-	/* | extension_specifier direct_declarator '(' parameter_type_list ')'
-	{ $$ = create_function_declarator_node($2, $4, NULL); $$ = create_list_node($1, $$, " "); }
-	| extension_specifier direct_declarator '(' ')'
-	{ $$ = create_function_declarator_node($2, NULL, NULL); $$ = create_list_node($1, $$, " "); }
-	| extension_specifier direct_declarator '(' identifier_list ')'
-	{ $$ = create_function_declarator_node($2, NULL, $4); $$ = create_list_node($1, $$, " "); } */
-
 
 	| direct_declarator '(' parameter_type_list ')'
 	{ $$ = create_function_declarator_node($1, $3, NULL); }
@@ -1855,7 +1961,7 @@ direct_declarator
 
 
 extension_specifier
-	: __EXTENSION__ { $$ = (void *) & ___extension___node; }
+	: __EXTENSION__ { $$ = ___EXTENSION___NODE; }
 	;
 
 
@@ -1873,7 +1979,7 @@ pointer
 	| '*' pointer
 	{ $$ = create_pointer_node(NULL, $2); }
 	| '*'
-	{ $$ = (void *) & pointer_node; }
+	{ $$ = POINTER_NODE; }
 	;
 
 type_qualifier_list
@@ -1885,7 +1991,7 @@ type_qualifier_list
 
 parameter_type_list
 	: parameter_list ',' ELLIPSIS
-	{ $$ = create_list_node($1, (void *) & ellipsis_node, ", "); }
+	{ $$ = create_list_node($1, ELLIPSIS_NODE, ", "); }
 	| parameter_list
 	{ $$ = $1; }
 	;
@@ -2043,9 +2149,9 @@ static_assert_declaration
 statement
 	: labeled_statement    { $$ = $1; }
 	|
-	{ symbol_table_push_scope(); }
+		{ symbol_table_push_scope(); }
 		compound_statement
-	{ symbol_table_pop_scope(); $$ = $2; }
+		{ symbol_table_pop_scope(); $$ = $2; }
 	| expression_statement { $$ = $1; }
 	| selection_statement  { $$ = $1; }
 	| iteration_statement  { $$ = $1; }
@@ -2123,9 +2229,9 @@ iteration_statement
 
 jump_statement
 	: GOTO IDENTIFIER ';'   { $$ = create_goto_node($2); }
-	| CONTINUE ';'          { $$ = (void *) & continue_node; }
-	| BREAK ';'             { $$ = (void *) & break_node; }
-	| RETURN ';'            { $$ = (void *) & return_node; }
+	| CONTINUE ';'          { $$ = CONTINUE_NODE; }
+	| BREAK ';'             { $$ = BREAK_NODE; }
+	| RETURN ';'            { $$ = RETURN_NODE; }
 	| RETURN expression ';' { $$ = create_return_node($2); }
 	;
 
@@ -2146,6 +2252,10 @@ jump_statement
 
 void yyerror(const char *s)
 {
+	print_original_syntax(yyfilename, yylineno, s);
+return;
+
+
 	if (yyfilename == NULL || yyfilename[0] == '\0') {
 		fprintf(stderr, "%s on line %d\n", s, yylineno);
 	}
@@ -2178,27 +2288,3 @@ static inline union ast_node* maybe_attributes(union ast_node *left, union ast_n
 }
 
 
-
-void register_typedef(union ast_node *decl_specs, union ast_node *declarator)
-{
-	//NOTE: Here, we need to check if the declaration is a `typedef` declaration.
-	//	We first scan the declaration_specifiers to see if there is a `typedef` keyword, by checking for an AST_TYPEDEF node.
-	//	Then we scan the init_declarator_list to see if there is a declarator with an identifier.
-
-	//	Scan the declaration_specifiers
-	union ast_node *node;
-
-	if ( ! is_typedef_node(decl_specs))
-		return;
-
-	node = get_id_node(declarator);
-
-	if (node) {
-		symbol_add_typedef(node->id.id, node);
-	} else {
-		//	NOTE: This might be the case for a typedef that is defined more than once ???. Or a symbol that doesn't have a name??? Anonymous struct? But I think the typedef will be named!
-		fprintf(stderr, "FATAL ERROR: typedef ID node is NULL\n");
-		exit(EXIT_FAILURE);
-	}
-	return;
-}
